@@ -11,12 +11,11 @@ optim_path_base = "params/optim_hyper_rand-{name}.pt"
 
 def experiments():
 	trials = {
-		# "vanilla": {},
-		"no-encode-val": {"encode_val": False},
-		"no-encode-val_no-bias": {"encode_val": False, "hypernet_bias": False},
-		"layernorm": {"layernorm": True},
-		"mag-sort": {"sort": "mag"},
-		"hidden-dim-48": {"hidden_dim": 48},
+		"vanilla": {},
+		# "no-encode-val": {"encode_val": False},
+		# "no-encode-val_no-bias": {"encode_val": False, "hypernet_bias": False},
+		# "layernorm": {"layernorm": True},
+		# "hidden-dim-48": {"hidden_dim": 48},
 	}
 	default = {
 		"dim": 8,

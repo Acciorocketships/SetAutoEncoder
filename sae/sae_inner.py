@@ -37,15 +37,9 @@ class Encoder(nn.Module):
         self.rank = torch.nn.Linear(self.input_dim, 1)
 
     def sort(self, x):
-        '''
-        mag = torch.norm(x, dim=-1)
-        _, order = torch.sort(mag)
-        return torch.index_select(x, dim=-2, index=order)
-        '''
         mag = self.rank(x).reshape(-1)
         _, idx = torch.sort(mag, dim=0)
         return x[idx]
-        #return torch.index_select(x, dim=-1, index=idx)
 
     def forward(self, x):
         # x: n x input_dim
