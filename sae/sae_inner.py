@@ -57,7 +57,7 @@ class Encoder(nn.Module):
         self.hidden_dim = hidden_dim
         self.max_n = max_n
         # Modules
-        self.pos_gen = PositionalEncoding(dim=self.max_n, mode='onehot')
+        self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
         self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
         self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
         self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
