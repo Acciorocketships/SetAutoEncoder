@@ -110,7 +110,7 @@ class Decoder(nn.Module):
         self.hidden_dim = hidden_dim
         self.max_n = max_n
         # Modules
-        self.pos_gen = PositionalEncoding(dim=self.max_n, mode='onehot')
+        self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
         self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
         self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=False)
         self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=self.max_n)
@@ -156,9 +156,9 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         if self.mode == 'onehot':
-            return self.onehot(x.int())
+            return self.onehot(x.type(torch.int64))
         elif self.mode == 'freq':
-            return self.freq(x.int())
+            return self.freq(x.type(torch.int64))
 
     def freq(self, x: Tensor) -> Tensor:
         out_shape = list(x.shape) + [self.dim]
