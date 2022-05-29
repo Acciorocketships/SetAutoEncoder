@@ -3,5 +3,6 @@ __MACOSX/
 __pycache__/
 .DS_Store
 runs/
+*/wandb
 .idea/
 params/
