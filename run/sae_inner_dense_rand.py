@@ -1,11 +1,9 @@
 import torch
 import numpy as np
 from torch.optim import Adam
-from sae import AutoEncoderHyper as AutoEncoder
-from sae import mse_sparse, corr_sparse
-from torch.nn import CrossEntropyLoss
+from torch.nn import MSELoss, CrossEntropyLoss
+from sae import AutoEncoderInner as AutoEncoder
 import wandb
-from torch_geometric.data import Data, Batch
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="params/sae_hyper_rand-{name}.pt"
@@ -13,11 +11,9 @@ optim_path_base = "params/optim_hyper_rand-{name}.pt"
 
 def experiments():
 	trials = {
-		"hyper/vanilla": {},
-		# "hyper/no-encode-val": {"encode_val": False},
-		# "hyper/no-encode-val_no-bias": {"encode_val": False, "hypernet_bias": False},
-		# "hyper/layernorm": {"layernorm": True},
-		# "hyper/hidden-dim-48": {"hidden_dim": 48},
+		"inner/vanilla": {},
+		# "inner/layernorm": {"layernorm": True},
+		# "inner/hidden-dim-48": {"hidden_dim": 48},
 	}
 	default = {
 		"dim": 8,
@@ -40,7 +36,6 @@ def run(
 			hidden_dim = 64,
 			max_n = 6,
 			epochs = 100000,
-			batch_size = 16,
 			model_path = model_path_base.format(name="base"),
 			optim_path = optim_path_base.format(name="base"),
 			name = None,
@@ -48,7 +43,7 @@ def run(
 			**kwargs,
 		):
 
-	autoencoder = AutoEncoder(dim=dim, hidden_dim=hidden_dim, max_n=max_n, data_batch=True, **kwargs)
+	autoencoder = AutoEncoder(dim=dim, hidden_dim=hidden_dim, max_n=max_n, **kwargs)
 
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
@@ -71,30 +66,41 @@ def run(
 		except Exception as e:
 			print(e)
 
+	mse_loss_fn = MSELoss()
+	crossentropy_loss_fn = CrossEntropyLoss()
+
 	for t in range(epochs):
 
-		data_list = []
-		for i in range(batch_size):
-			n = torch.randint(low=1, high=max_n, size=(1,))
-			x = torch.randn(n[0], dim)
-			d = Data(x=x)
-			data_list.append(d)
-		data = Batch.from_data_list(data_list)
+		n = torch.randint(low=1, high=max_n, size=(1,))
+		x = torch.randn(n[0], dim)
 
-		xr = autoencoder(data)
+		xr = autoencoder(x)
 		var = autoencoder.get_vars()
 
-		mse_loss = mse_sparse(var["x"], xr)
-		crossentropy_loss = CrossEntropyLoss()(var["n_pred"], var["n"])
+		x_trunc = var["x"][:min(x.shape[0],xr.shape[0]),:]
+		xr_trunc = xr[:min(x.shape[0],xr.shape[0]),:]
+
+		mse_loss = mse_loss_fn(x_trunc, xr_trunc)
+		if torch.isnan(mse_loss):
+			mse_loss = 0
+		crossentropy_loss = crossentropy_loss_fn(var["n_pred"].unsqueeze(0), n)
 		loss = mse_loss + crossentropy_loss
 
-		corr = corr_sparse(var["x"], xr)
+		if x_trunc.shape[0]==0:
+			corr = 1.
+			corr_baseline = 1.
+		else:
+			corr = np.corrcoef(x_trunc.reshape(-1), xr_trunc.detach().reshape(-1))[0,1]
+			corr_baseline = np.corrcoef(x.sum(dim=0).unsqueeze(0).repeat((xr.shape[0], 1)).reshape(-1), xr.detach().reshape(-1))[0,1]
+
 
 		wandb.log({
 					"loss": mse_loss,
 					"crossentropy_loss": crossentropy_loss,
 					"total_loss": loss,
+					"n_correct": n[0]==xr.shape[0],
 					"corr": corr,
+					"corr_with_sum": corr_baseline,
 				})
 
 		loss.backward()

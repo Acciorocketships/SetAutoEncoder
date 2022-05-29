@@ -1,51 +1,25 @@
 import torch
 import math
 from torch import nn, Tensor
-from torch_scatter import scatter
-from torch_geometric.data import Data, Batch
 from sae.mlp import build_mlp, Elementwise
+from matplotlib import pyplot as plt
 from sae.hyper import update_module_params, get_num_params, replace_hyper_elementwise
 
 
 class AutoEncoder(nn.Module):
 
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.encoder = Encoder(*args, **kwargs)
-        self.decoder = Decoder(*args, **kwargs)
-        self.data_batch = kwargs.get("data_batch", True)
+	def __init__(self, *args, **kwargs):
+		super().__init__()
+		self.encoder = Encoder(*args, **kwargs)
+		self.decoder = Decoder(*args, **kwargs)
 
-    def forward(self, x, batch=None):
-        if self.data_batch:
-            data = x
-            x = data.x
-            batch = data.batch
-        z = self.encoder(x, batch)
-        xr, batchr = self.decoder(z)
-        if self.data_batch:
-            return self.create_data_batch(xr, self.decoder.get_n())
-        else:
-            return xr, batchr
+	def forward(self, x):
+		z = self.encoder(x)
+		xr = self.decoder(z)
+		return xr
 
-    def get_vars(self):
-        if self.data_batch:
-            return {
-                "n_pred": self.decoder.get_n_pred(),
-                "n": self.encoder.get_n(),
-                "x": self.create_data_batch(self.encoder.get_x(), self.encoder.get_n())
-            }
-        else:
-            return {
-                "n_pred": self.decoder.get_n_pred(),
-                "n": self.encoder.get_n(),
-                "x": self.encoder.get_x()
-            }
-
-    def create_data_batch(self, x, n):
-        ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
-        data_list = [Data(x=x[start_idx:end_idx,:]) for start_idx, end_idx in zip(ptr[:-1], ptr[1:])]
-        return Batch.from_data_list(data_list)
-        # return Batch(x=x, batch=batch, ptr=ptr)
+	def get_vars(self):
+		return {"n_pred": self.decoder.get_n_pred(), "x": self.encoder.get_x()}
 
 
 class Encoder(nn.Module):
@@ -69,39 +43,26 @@ class Encoder(nn.Module):
 		_, idx = torch.sort(mag, dim=0)
 		return x[idx]
 
-	def forward(self, x, batch=None):
+	def forward(self, x):
 		# x: n x input_dim
-		_, input_dim = x.shape
-		if batch is None:
-			batch = torch.zeros(x.shape[0])
-
-		n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum').long()  # batch_size
-		ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
-		self.n = n
-
-		xs = torch.cat([self.sort(x[i:j, :]) for i, j in zip(ptr[:-1], ptr[1:])], dim=0)  # total_nodes x input_dim
-		self.xs = xs
-
-		keys = torch.cat([torch.arange(ni) for ni in n], dim=0).int()  # batch_size
-		pos = self.pos_gen(keys)  # batch_size x hidden_dim
-
+		n, input_dim = x.shape
+		xs = self.sort(x)
+		pos = self.pos_gen(torch.arange(n)) # n x pos_encoding_dim
 		y0 = self.enc_psi(xs)
 		self.hypernet.update(key=pos, val=y0)
 		y1 = self.hypernet(y0)
-
-		y2 = scatter(src=y1, index=batch, dim=-2, reduce='sum')
-
-		pos_n = self.pos_gen(n)
+		y2 = torch.sum(y1, dim=-2)
+		pos_n = self.pos_gen(torch.tensor(n))
 		y3 = torch.cat([y2, pos_n], dim=-1)
-
 		z = self.enc_phi(y3)
+		self.xs = xs
 		return z
 
 	def get_x(self):
 		return self.xs
 
 	def get_n(self):
-		return self.n
+		return self.xs.shape[0]
 
 
 class Decoder(nn.Module):
@@ -118,31 +79,21 @@ class Decoder(nn.Module):
 		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=kwargs.get("layernorm", False))
 		self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=self.max_n)
 
+
 	def forward(self, z):
-		# z: batch_size x hidden_dim
-		n_pred = self.size_pred(z)  # batch_size x max_n
-		self.n_pred = n_pred
-		n = torch.argmax(n_pred, dim=-1)
-		self.n = n
-
-		keys = torch.cat([torch.arange(ni) for ni in n], dim=0)
-		pos = self.pos_gen(keys)  # total_nodes x max_n
+		# z: hidden_dim
+		n_pred = self.size_pred(z)
+		n = torch.argmax(n_pred)
+		pos = self.pos_gen(torch.arange(n)) # n x max_n
 		self.hypernet.update(pos)
-
-		z_expanded = torch.repeat_interleave(z, n, dim=0)
-		zp = self.hypernet(z_expanded)
-
+		zp = self.hypernet(z.unsqueeze(0).expand(n, -1))
 		x = self.decoder(zp)
-
-		batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
-		return x, batch
+		self.n_pred = n_pred
+		return x
 
 
 	def get_n_pred(self):
 		return self.n_pred
-
-	def get_n(self):
-		return self.n
 
 
 class Hypernet(nn.Module):
@@ -210,25 +161,12 @@ class PositionalEncoding(nn.Module):
 
 
 if __name__ == '__main__':
-
-    dim = 3
-    max_n = 5
-    batch_size = 16
-
-    enc = Encoder(dim=dim)
-    dec = Decoder(dim=dim)
-
-    data_list = []
-    for i in range(batch_size):
-        n = torch.randint(low=1, high=max_n, size=(1,))
-        x = torch.randn(n[0], dim)
-        d = Data(x=x, y=x)
-        data_list.append(d)
-    data = Batch.from_data_list(data_list)
-
-    z = enc(data.x, data.batch)
-    xr, batchr = dec(z)
-
-    print(data.x.shape, xr.shape)
-    print(data.batch.shape, batchr.shape)
+	dim = 3
+	n = 5
+	enc = Encoder(dim=dim)
+	dec = Decoder(dim=dim)
+	x = torch.rand(n,dim)
+	z = enc(x)
+	y = dec(z)
+	import pdb; pdb.set_trace()
 

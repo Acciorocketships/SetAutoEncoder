@@ -20,6 +20,7 @@ def replace_hyper_elementwise(module, params):
 	module.weight = params[:, :module.features].reshape(module.batch, module.features)
 	if module.include_bias:
 		module.bias = params[:, module.features:module.num_params].reshape(module.batch, 1)
+	return module
 
 
 
