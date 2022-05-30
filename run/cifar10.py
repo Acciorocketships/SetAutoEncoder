@@ -57,9 +57,10 @@ class CNNAE(nn.Module):
             nn.LeakyReLU(),
             nn.Conv2d(48, 96, 4, stride=2, padding=1),           # [batch, 96, 2, 2]
             nn.LeakyReLU(),
-            
+            nn.Flatten(1),
         )
         self.decoder = nn.Sequential(
+            nn.Unflatten(1, (96, 2, 2)),
             nn.ConvTranspose2d(96, 48, 4, stride=2, padding=1),  # [batch, 48, 4, 4]
             nn.LeakyReLU(),
             nn.ConvTranspose2d(48, 24, 4, stride=2, padding=1),  # [batch, 24, 8, 8]
@@ -67,7 +68,7 @@ class CNNAE(nn.Module):
             nn.ConvTranspose2d(24, 12, 4, stride=2, padding=1),  # [batch, 12, 16, 16]
             nn.LeakyReLU(),
             nn.ConvTranspose2d(12, 3, 4, stride=2, padding=1),   # [batch, 3, 32, 32]
-            nn.Tanh(),
+            #nn.Tanh(),
         )
 
     def forward(self, x):
@@ -80,20 +81,20 @@ class SeqAE(nn.Module):
         super().__init__()
         self.cnn_ae = CNNAE()
         self.set_ae = AutoEncoder(
-            dim=384, hidden_dim=max_seq_len * 384, max_n=max_seq_len, pe="onehot",
+            dim=384, hidden_dim=max_seq_len * 128, max_n=max_seq_len, pe="onehot",
             data_batch=False
         )
 
-    def forward(self, x, b_idx):
+    def forward_old(self, x, b_idx):
         z = self.encode(x, b_idx)
         return self.decode(z)
 
-    def forward2(self, x, b_idx):
+    def forward(self, x, b_idx):
         cnn_feat = self.cnn_ae.encoder(x)
         z = self.set_ae.encoder(cnn_feat.flatten(1), b_idx)
         set_feat, batch, pred_seq_lens = self.set_ae.decoder(z)
         img = self.cnn_ae.decoder(cnn_feat)
-        imgs = self.cnn_ae.decoder(set_feat.reshape(-1, 96, 2, 2))
+        imgs = self.cnn_ae.decoder(set_feat)
         return (imgs, batch, pred_seq_lens), img
 
 
@@ -135,60 +136,13 @@ def main():
     seq_len_range = torch.tensor([4, 8], device=device)
     num_seqs_range = (1 / (seq_len_range / batch_size)).int().flip(0)
     model = SeqAE(seq_len_range[1]).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=0.0005)
+    print(model)
+    opt = torch.optim.Adam(model.parameters(), lr=0.001)
     crit = torch.nn.functional.mse_loss
-
-    """
-    # First train cnn ae
-    epochs = 50
-    pbar = tqdm.trange(epochs, position=0, desc="CNN Epochs", unit="epoch")
-    loss = 0
-    val_loss = 0
-    for epoch in pbar:
-        pbar2 = tqdm.tqdm(
-            trainloader, position=1, desc=f"Epoch {epoch}", unit="batch", leave=False
-        )
-        for data in pbar2:
-            targets, _ = data
-            targets = targets.to(device)
-            opt.zero_grad()
-            pred = model.cnn_ae(targets)
-            loss = crit(pred, targets)
-            opt.zero_grad()
-            loss.backward()
-            opt.step()
-            wandb.log({"cnn loss": loss, "epoch": epoch})
-            pbar2.set_description(f"train loss: {loss:.3f}")
-        # CNN val
-        targets = valset
-        with torch.no_grad():
-            pred = model.cnn_ae(targets)
-
-        val_loss = crit(
-            pred, targets
-        )
-
-        viz = torchvision.utils.make_grid(
-            torch.cat([targets[:16], pred[:16]], dim=0), nrow=16
-        )
-        #imshow(viz, epoch, prefix="cnn_")
-
-        pbar.set_description(f"cnn val loss: {val_loss:.3f}")
-        wandb.log(
-            {
-                "cnn_val_loss": val_loss,
-                "cnn_val_image": wandb.Image(viz / 2 + 0.5),
-            }, 
-        commit=False)
-
-
-    # freeze cnn
-    for param in model.cnn_ae.parameters():
-        param.requires_grad = False
-    """
+    wandb.watch(model, log='all')
 
     # train loop
-    epochs = 100
+    epochs = 200
     pbar = tqdm.trange(epochs, position=0, desc="All Epochs", unit="epoch")
     loss = 0
     val_loss = 0
@@ -208,7 +162,7 @@ def main():
             b_idx = torch.repeat_interleave(
                 torch.arange(seq_lens.numel(), device=device), seq_lens
             )
-            (recon, recon_b_idx, pred_seq_lens), cnn_pred = model.forward2(targets, b_idx)
+            (recon, recon_b_idx, pred_seq_lens), cnn_pred = model(targets, b_idx)
             pred_loss_idx, target_loss_idx = get_loss_idxs(
                 pred_seq_lens, seq_lens
             )
@@ -234,7 +188,7 @@ def main():
             torch.arange(val_seq_lens.numel(), device=device), val_seq_lens
         )
         with torch.no_grad():
-            (recon, recon_b_idx, pred_seq_lens), cnn_pred = model.forward2(targets, b_idx)
+            (recon, recon_b_idx, pred_seq_lens), cnn_pred = model(targets, b_idx)
 
         pred_loss_idx, target_loss_idx = get_loss_idxs(
             pred_seq_lens, val_seq_lens
@@ -246,7 +200,7 @@ def main():
         val_loss = set_loss + cnn_loss
 
         viz = torchvision.utils.make_grid(
-                torch.cat([targets[:16], cnn_pred[:16], recon[:16]], dim=0), nrow=16
+                torch.cat([targets[:16], cnn_pred[:16].clamp(-1, 1), recon[:16]], dim=0), nrow=16
         )
         #imshow(viz, epoch)
 
