@@ -30,12 +30,14 @@ class AutoEncoder(nn.Module):
         if self.data_batch:
             return {
                 "n_pred": self.decoder.get_n_pred(),
+                "n_pred_hard": self.decoder.get_n(),
                 "n": self.encoder.get_n(),
                 "x": self.create_data_batch(self.encoder.get_x(), self.encoder.get_n())
             }
         else:
             return {
                 "n_pred": self.decoder.get_n_pred(),
+                "n_pred_hard": self.decoder.get_n(),
                 "n": self.encoder.get_n(),
                 "x": self.encoder.get_x()
             }

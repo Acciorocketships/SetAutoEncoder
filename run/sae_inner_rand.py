@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.optim import Adam
 from sae import AutoEncoderInner as AutoEncoder
-from sae import mse_sparse, corr_sparse
+from sae import mse_sparse, get_loss_idxs, corr_sparse
 from torch.nn import CrossEntropyLoss
 import wandb
 from torch_geometric.data import Data, Batch
@@ -82,7 +82,10 @@ def run(
 		xr = autoencoder(data)
 		var = autoencoder.get_vars()
 
-		mse_loss = mse_sparse(var["x"], xr)
+		pred_idx, tgt_idx = get_loss_idxs(
+			var["n_pred_hard"], var["n"]
+		)
+		mse_loss = torch.nn.functional.mse_loss(var["x"].x[tgt_idx], xr.x[pred_idx])
 		crossentropy_loss = CrossEntropyLoss()(var["n_pred"], var["n"])
 		loss = mse_loss + crossentropy_loss
 
