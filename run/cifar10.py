@@ -15,13 +15,13 @@ import wandb
 
 
 
-def imshow(img, epoch):
+def imshow(img, epoch, prefix=""):
     img = img / 2 + 0.5     # unnormalize
     npimg = img.numpy()
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.tight_layout()
     os.makedirs("/tmp/setae", exist_ok=True)
-    plt.savefig(f"/tmp/setae/recon_epoch_{epoch:03}.png")
+    plt.savefig(f"/tmp/setae/{prefix}recon_epoch_{epoch:03}.png")
 
 def constrained_sum_sample_pos(n, total, min_num, max_num):
     """Return a randomly chosen list of n positive integers summing to total,
@@ -50,22 +50,22 @@ class CNNAE(nn.Module):
         # Output size: [batch, 3, 32, 32]
         self.encoder = nn.Sequential(
             nn.Conv2d(3, 12, 4, stride=2, padding=1),            # [batch, 12, 16, 16]
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(12, 24, 4, stride=2, padding=1),           # [batch, 24, 8, 8]
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.Conv2d(24, 48, 4, stride=2, padding=1),           # [batch, 48, 4, 4]
-            nn.ReLU(),
-            #nn.Conv2d(48, 96, 4, stride=2, padding=1),           # [batch, 96, 2, 2]
-            #nn.ReLU(),
+            nn.LeakyReLU(),
+            nn.Conv2d(48, 96, 4, stride=2, padding=1),           # [batch, 96, 2, 2]
+            nn.LeakyReLU(),
             
         )
         self.decoder = nn.Sequential(
-            #nn.ConvTranspose2d(96, 48, 4, stride=2, padding=1),  # [batch, 48, 4, 4]
-            #nn.ReLU(),
+            nn.ConvTranspose2d(96, 48, 4, stride=2, padding=1),  # [batch, 48, 4, 4]
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(48, 24, 4, stride=2, padding=1),  # [batch, 24, 8, 8]
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(24, 12, 4, stride=2, padding=1),  # [batch, 12, 16, 16]
-            nn.ReLU(),
+            nn.LeakyReLU(),
             nn.ConvTranspose2d(12, 3, 4, stride=2, padding=1),   # [batch, 3, 32, 32]
             nn.Tanh(),
         )
@@ -80,12 +80,22 @@ class SeqAE(nn.Module):
         super().__init__()
         self.cnn_ae = CNNAE()
         self.set_ae = AutoEncoder(
-            dim=768, hidden_dim=max_seq_len * 768, max_n=max_seq_len, pe="onehot"
+            dim=384, hidden_dim=max_seq_len * 384, max_n=max_seq_len, pe="onehot",
+            data_batch=False
         )
 
     def forward(self, x, b_idx):
         z = self.encode(x, b_idx)
         return self.decode(z)
+
+    def forward2(self, x, b_idx):
+        cnn_feat = self.cnn_ae.encoder(x)
+        z = self.set_ae.encoder(cnn_feat.flatten(1), b_idx)
+        set_feat, batch, pred_seq_lens = self.set_ae.decoder(z)
+        img = self.cnn_ae.decoder(cnn_feat)
+        imgs = self.cnn_ae.decoder(set_feat.reshape(-1, 96, 2, 2))
+        return (imgs, batch, pred_seq_lens), img
+
 
     def encode(self, x, b_idx):
         # Shape [B*t,f]
@@ -95,7 +105,7 @@ class SeqAE(nn.Module):
 
     def decode(self, z):
         feat, batch, pred_seq_lens = self.set_ae.decoder(z)
-        img = self.cnn_ae.decoder(feat.reshape(-1, 48, 4, 4))
+        img = self.cnn_ae.decoder(feat.reshape(-1, 96, 2, 2))
         return img, batch, pred_seq_lens
 
 
@@ -106,7 +116,7 @@ def main():
         [transforms.ToTensor(),
          transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-    batch_size = 256
+    batch_size = 128
     val_batch_size = 64
 
     trainset = torchvision.datasets.CIFAR10(root='/tmp/datasets', train=True,
@@ -125,10 +135,57 @@ def main():
     seq_len_range = torch.tensor([4, 8], device=device)
     num_seqs_range = (1 / (seq_len_range / batch_size)).int().flip(0)
     model = SeqAE(seq_len_range[1]).to(device)
-    opt = torch.optim.Adam(model.parameters(), lr=0.001)
-    #crit = torch.nn.functional.binary_cross_entropy#mse_sparse
+    opt = torch.optim.Adam(model.parameters(), lr=0.0005)
     crit = torch.nn.functional.mse_loss
-    #crit = mse_sparse
+
+    """
+    # First train cnn ae
+    epochs = 50
+    pbar = tqdm.trange(epochs, position=0, desc="CNN Epochs", unit="epoch")
+    loss = 0
+    val_loss = 0
+    for epoch in pbar:
+        pbar2 = tqdm.tqdm(
+            trainloader, position=1, desc=f"Epoch {epoch}", unit="batch", leave=False
+        )
+        for data in pbar2:
+            targets, _ = data
+            targets = targets.to(device)
+            opt.zero_grad()
+            pred = model.cnn_ae(targets)
+            loss = crit(pred, targets)
+            opt.zero_grad()
+            loss.backward()
+            opt.step()
+            wandb.log({"cnn loss": loss, "epoch": epoch})
+            pbar2.set_description(f"train loss: {loss:.3f}")
+        # CNN val
+        targets = valset
+        with torch.no_grad():
+            pred = model.cnn_ae(targets)
+
+        val_loss = crit(
+            pred, targets
+        )
+
+        viz = torchvision.utils.make_grid(
+            torch.cat([targets[:16], pred[:16]], dim=0), nrow=16
+        )
+        #imshow(viz, epoch, prefix="cnn_")
+
+        pbar.set_description(f"cnn val loss: {val_loss:.3f}")
+        wandb.log(
+            {
+                "cnn_val_loss": val_loss,
+                "cnn_val_image": wandb.Image(viz / 2 + 0.5),
+            }, 
+        commit=False)
+
+
+    # freeze cnn
+    for param in model.cnn_ae.parameters():
+        param.requires_grad = False
+    """
 
     # train loop
     epochs = 100
@@ -151,41 +208,25 @@ def main():
             b_idx = torch.repeat_interleave(
                 torch.arange(seq_lens.numel(), device=device), seq_lens
             )
-            recon, recon_b_idx, pred_seq_lens = model(targets, b_idx)
+            (recon, recon_b_idx, pred_seq_lens), cnn_pred = model.forward2(targets, b_idx)
             pred_loss_idx, target_loss_idx = get_loss_idxs(
                 pred_seq_lens, seq_lens
             )
-            loss = crit(
+            set_loss = crit(
                 recon[pred_loss_idx], targets[target_loss_idx]
-            )
+            ) 
+            cnn_loss = crit(cnn_pred, targets)
+            loss = set_loss + cnn_loss
             if not torch.isfinite(loss):
                 print("Warning: got NaN loss, ignoring...")
                 continue
-            """
-            # Required for loss
-            target_list = []
-            target_sum = 0
-            for s in seq_lens:
-                target_x = targets[target_sum: target_sum + s]
-                target_list.append(torch_geometric.data.Data(x=target_x))
-                target_sum += s
-            target = torch_geometric.data.Batch.from_data_list(target_list)
 
-            pred_list = []
-            pred_sum = 0
-            for i in recon_b_idx.unique():
-                pred_x = recon[recon_b_idx == i]
-                pred_list.append(torch_geometric.data.Data(x=pred_x))
-            pred = torch_geometric.data.Batch.from_data_list(pred_list)
-            if pred.num_graphs != target.num_graphs:
-                breakpoint()
-
-            loss = crit(target, pred)
-            """
             pbar2.set_description(f"train loss: {loss:.3f}")
             loss.backward()
             opt.step()
-            wandb.log({"loss": loss, "epoch": epoch})
+            wandb.log(
+                {"loss": loss, "set loss": set_loss, "cnn loss": cnn_loss, "epoch": epoch}
+            )
 
         val_loss = 0
         targets = valset
@@ -193,43 +234,29 @@ def main():
             torch.arange(val_seq_lens.numel(), device=device), val_seq_lens
         )
         with torch.no_grad():
-            recon, recon_b_idx, pred_seq_lens = model(targets, b_idx)
-        """
-        # Required for loss
-        target_list = []
-        target_sum = 0
-        for s in val_seq_lens:
-            target_x = targets[target_sum: target_sum + s]
-            target_list.append(torch_geometric.data.Data(x=target_x))
-            target_sum += s
-        target = torch_geometric.data.Batch.from_data_list(target_list)
-
-        pred_list = []
-        pred_sum = 0
-        for i in recon_b_idx.unique():
-            pred_x = recon[recon_b_idx == i]
-            pred_list.append(torch_geometric.data.Data(x=pred_x))
-        pred = torch_geometric.data.Batch.from_data_list(pred_list)
-        val_loss = crit(target, pred)
-        """
+            (recon, recon_b_idx, pred_seq_lens), cnn_pred = model.forward2(targets, b_idx)
 
         pred_loss_idx, target_loss_idx = get_loss_idxs(
             pred_seq_lens, val_seq_lens
         )
-        val_loss = crit(
+        set_loss = crit(
             recon[pred_loss_idx], targets[target_loss_idx]
-        )
+        ) 
+        cnn_loss = crit(cnn_pred, targets)
+        val_loss = set_loss + cnn_loss
 
         viz = torchvision.utils.make_grid(
-            torch.cat([targets[:16], recon[:16]], dim=0), nrow=16
+                torch.cat([targets[:16], cnn_pred[:16], recon[:16]], dim=0), nrow=16
         )
-        imshow(viz, epoch)
+        #imshow(viz, epoch)
 
         pbar.set_description(f"val loss: {val_loss:.3f}")
         wandb.log(
             {
-                "val_loss": val_loss,
-                "val_image": viz / 2 + 0.5,
+                "val loss": val_loss,
+                "val set loss": set_loss,
+                "val cnn loss": cnn_loss,
+                "val image": wandb.Image(viz / 2 + 0.5),
             }, 
         commit=False)
 
