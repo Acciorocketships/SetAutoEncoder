@@ -120,9 +120,6 @@ class Decoder(nn.Module):
         n_pred = self.size_pred(z) # batch_size x max_n
         self.n_pred = n_pred
         n = torch.argmax(n_pred, dim=-1)
-        # Predicting zero element sets fuck shit up
-        n[n==0] = 1
-
         self.n = n
 
         keys = torch.cat([torch.arange(ni) for ni in n], dim=0)
@@ -134,7 +131,7 @@ class Decoder(nn.Module):
         x = self.decoder(zp)
 
         batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
-        return x, batch, n
+        return x, batch
 
     def get_n_pred(self):
         return self.n_pred
