@@ -21,6 +21,7 @@ class AutoEncoder(nn.Module):
             batch = data.batch
         z = self.encoder(x, batch)
         xr, batchr = self.decoder(z)
+
         if self.data_batch:
             return self.create_data_batch(xr, self.decoder.get_n())
         else:
@@ -39,7 +40,9 @@ class AutoEncoder(nn.Module):
                 "n_pred": self.decoder.get_n_pred(),
                 "n_pred_hard": self.decoder.get_n(),
                 "n": self.encoder.get_n(),
-                "x": self.encoder.get_x()
+                "x": self.encoder.get_x(),
+                # input to x permutation
+                "x_perm": self.encoder.get_x_perm()
             }
 
     def create_data_batch(self, x, n):
@@ -65,9 +68,14 @@ class Encoder(nn.Module):
         self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
         self.rank = torch.nn.Linear(self.input_dim, 1)
 
-    def sort(self, x):
+    def get_x_perm(self):
+        return self.xs_idx
+
+    def sort(self, x, return_idx=False):
         mag = self.rank(x).reshape(-1)
         _, idx = torch.sort(mag, dim=0)
+        if return_idx:
+            return x[idx], idx
         return x[idx]
 
     def forward(self, x, batch=None):
@@ -80,8 +88,18 @@ class Encoder(nn.Module):
         ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
         self.n = n
 
-        xs = torch.cat([self.sort(x[i:j,:]) for i,j in zip(ptr[:-1],ptr[1:])], dim=0) # total_nodes x input_dim
+        # Zip set start and ends
+        xs = []
+        xs_idx = []
+        for i, j in zip(ptr[:-1], ptr[1:]):
+            x_sorted, idx_sorted = self.sort(x[i:j, :], return_idx=True)
+            xs.append(x_sorted)
+            xs_idx.append(idx_sorted + i)
+        xs = torch.cat(xs, dim=0) # total_nodes x input_dim
+        xs_idx = torch.cat(xs_idx, dim=0)
+        
         self.xs = xs
+        self.xs_idx = xs_idx
 
         keys = torch.cat([torch.arange(ni) for ni in n], dim=0).int() # batch_size
         pos = self.pos_gen(keys) # batch_size x hidden_dim

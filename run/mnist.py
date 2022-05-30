@@ -140,18 +140,33 @@ class SeqAE(nn.Module):
             data_batch=False,
         )
 
-    def loss(self, x, set_x_pred, cnn_x_pred=None):
-        """Computes combined loss given x and reconstructed x"""
+    def loss(self, cnn_x, set_x_pred, cnn_x_pred=None):
+        """Computes combined loss given x and reconstructed x.
+        Note that although cnn_x and var[x] should be the same,
+        var[x] is in fact a permuted version. So do not mess up
+        var[x] and x."""
         var = self.set_ae.get_vars()
         pred_idx, tgt_idx = get_loss_idxs(var["n_pred_hard"], var["n"])
-        set_mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], set_x_pred[pred_idx])
+        # This loss computes the difference between the permuted original
+        # and is the total loss, including the cnn errors
+        #set_mse_loss = torch.nn.functional.mse_loss(
+        #    cnn_x[var["x_perm"]][tgt_idx], set_x_pred[pred_idx]
+        #)
+        # This loss computes the error between the cnn reconstruction
+        # and is strictly the loss reponsible for non-cnn errors
+        set_mse_loss = torch.nn.functional.mse_loss(
+            self.cnn_ae.decoder(var["x"][tgt_idx]), set_x_pred[pred_idx]
+        )
+        # Sometimes mse loss can be zero if we predict entirely wrong batches
+        if torch.isnan(set_mse_loss):
+            set_mse_loss = 0
         set_ce_loss = torch.nn.functional.cross_entropy(var["n_pred"], var["n"])
         loss = set_mse_loss + set_ce_loss
 
         if cnn_x_pred is None:
-            return loss, (set_mse_loss, set_ce_loss)
+            return loss, (set_mse_loss, set_ce_loss, 0)
 
-        cnn_loss = torch.nn.functional.mse_loss(x, cnn_x_pred)
+        cnn_loss = torch.nn.functional.mse_loss(cnn_x, cnn_x_pred)
         loss = loss + cnn_loss
         return loss, (set_mse_loss, set_ce_loss, cnn_loss)
 
@@ -238,7 +253,6 @@ def main():
                     "epoch": epoch,
                 }
             )
-
         val_loss = 0
         targets = valset
         b_idx = torch.repeat_interleave(
@@ -251,10 +265,13 @@ def main():
         )
 
         viz = torchvision.utils.make_grid(
-            torch.cat([targets[:16], cnn_pred[:16].clamp(-1, 1), set_pred[:16]], dim=0),
+            torch.cat([
+                targets[:16], 
+                cnn_pred[:16].clamp(-1, 1), 
+                set_pred[:16].clamp(-1, 1)
+            ], dim=0),
             nrow=16,
         )
-        # imshow(viz, epoch)
 
         pbar.set_description(f"val loss: {val_loss:.3f}")
         wandb.log(
