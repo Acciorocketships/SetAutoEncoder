@@ -42,4 +42,5 @@ First, the decoder predicts the length of the set n, which was just encoded in t
 Next, keys from 1 to the predicted n are generated in one-hot format. Each key is concatenated with a copy of the entire latent space to produce an element-specific encoding.
 
 Finally, all of the encodings pass through the decoder to produce the output set. While the outputs are unordered, a correspondence between the output and the input can be established by matching the keys (for example, the element associated with key 1 in the encoder corresponds to the element corresponding to key 1 in the decoder). 
+
 ![Decoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/decoder.png)
