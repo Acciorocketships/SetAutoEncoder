@@ -16,3 +16,10 @@ The usefulness of a set decoder (and, by extension, a set autoencoder) is quite 
 - producing continuous, multi-modal action distributions with a sum of a variable number of gaussians (usually to produce a multi-modal distribution, it must be discrete)
 - A building block for a graph autoencoder, which can be used for neural cellular automata
 
+## Architecture
+
+### Encoder
+![Encoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/encoder.png)
+
+### Decoder
+![Decoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/decoder.png)
