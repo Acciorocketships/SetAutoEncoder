@@ -7,7 +7,7 @@ from torch.nn import MSELoss
 
 
 
-def build_mlp(input_dim, output_dim, nlayers=1, midmult=1., batchnorm=False, layernorm=False, nonlinearity=nn.ReLU):
+def build_mlp(input_dim, output_dim, nlayers=1, midmult=1., batchnorm=False, layernorm=True, nonlinearity=nn.GELU):
 	mlp_layers = layergen(input_dim=input_dim, output_dim=output_dim, nlayers=nlayers, midmult=midmult)
 	mlp = MLP(layer_sizes=mlp_layers, batchnorm=batchnorm, layernorm=layernorm, nonlinearity=nonlinearity)
 	return mlp
