@@ -140,20 +140,15 @@ class SeqAE(nn.Module):
             data_batch=False,
         )
 
-    def loss(self, cnn_x, set_z_pred, cnn_x_pred=None, discard_invalid=False):
+    def loss(self, cnn_x, set_z_pred, cnn_x_pred=None, cnn_weight=1.0):
         """Computes combined loss given x and reconstructed x.
         Note that although cnn_x and var[x] should be the same,
         var[x] is in fact a permuted version. So do not mess up
         var[x] and x."""
         var = self.set_ae.get_vars()
-        # Sometimes, invalid batch size predictions can cause a huge loss spike
-        # throw these away
         valid_batch_mask = (var["n_pred_hard"] == var["n"]).reshape(-1)
         pct_correct_sizes = valid_batch_mask.float().sum() / valid_batch_mask.numel()
-        if discard_invalid:
-            pred_idx, tgt_idx = get_loss_idxs(var["n_pred_hard"][valid_batch_mask], var["n"][valid_batch_mask])
-        else:
-            pred_idx, tgt_idx = get_loss_idxs(var["n_pred_hard"], var["n"])
+        pred_idx, tgt_idx = get_loss_idxs(var["n_pred_hard"], var["n"])
 
         set_mse_loss = torch.nn.functional.mse_loss(
             self.cnn_ae.decoder(set_z_pred)[pred_idx], cnn_x[var["x_perm_idx"]][tgt_idx]
@@ -166,10 +161,10 @@ class SeqAE(nn.Module):
         loss = set_mse_loss + set_ce_loss
 
         if cnn_x_pred is None:
-            return loss, (set_mse_loss, set_ce_loss, 0)
+            return loss, (set_mse_loss, set_ce_loss, 0, pct_correct_sizes)
 
         cnn_loss = torch.nn.functional.mse_loss(cnn_x, cnn_x_pred)
-        loss = loss + cnn_loss
+        loss = loss + cnn_loss * cnn_weight
         return loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes)
 
     def forward(self, x, b_idx):
@@ -192,7 +187,7 @@ def main():
         root="/tmp/datasets", train=True, download=True, transform=transform
     )
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=2
+        trainset, batch_size=batch_size, shuffle=True, num_workers=2, drop_last=True
     )
 
     testset = torchvision.datasets.MNIST(
@@ -211,10 +206,10 @@ def main():
     model = SeqAE(seq_len_range[1]).to(device)
     print(model)
     opt = torch.optim.AdamW(model.parameters(), lr=0.001)
-    graph = wandb.watch(model, crit, log="gradients", log_freq=100)
+    graph = wandb.watch(model, log="gradients", log_freq=500)
 
     # train loop
-    epochs = 500
+    epochs = 200
     pbar = tqdm.trange(epochs, position=0, desc="All Epochs", unit="epoch")
     loss = 0
     val_loss = 0
@@ -235,8 +230,9 @@ def main():
                 torch.arange(seq_lens.numel(), device=device), seq_lens
             )
             set_pred, cnn_pred = model(targets, b_idx)
+            cnn_weight = 1 - epoch / epochs
             loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
-                targets, set_pred, cnn_pred
+                targets, set_pred, cnn_pred, cnn_weight
             )
             if not torch.isfinite(loss):
                 print("Warning: got NaN loss, ignoring...")
@@ -249,9 +245,9 @@ def main():
             wandb.log(
                 {
                     "loss": loss,
-                    "set loss": set_mse_loss,
-                    "order loss": set_ce_loss,
-                    "cnn loss": cnn_loss,
+                    "reconstruction loss": set_mse_loss,
+                    "set size loss": set_ce_loss,
+                    "cnn reconstruction loss": cnn_loss,
                     "percent correct set size preds": pct_correct_sizes,
                     "epoch": epoch,
                 }
@@ -264,14 +260,14 @@ def main():
         with torch.no_grad():
             set_pred, cnn_pred = model(targets, b_idx)
             val_loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
-                targets, set_pred, cnn_pred
+                targets, set_pred, cnn_pred, cnn_weight
             )
         var = model.set_ae.get_vars()
 
         viz = torchvision.utils.make_grid(
             torch.cat([
                 targets[var["x_perm_idx"]], 
-                cnn_pred[var["x_perm_idx"].clamp(-1, 1), 
+                cnn_pred[var["x_perm_idx"]].clamp(-1, 1), 
                 model.cnn_ae.decoder(set_pred[:64]).clamp(-1, 1)
             ], dim=0),
             nrow=64,
@@ -281,10 +277,10 @@ def main():
         wandb.log(
             {
                 "val loss": val_loss,
-                "val set loss": set_mse_loss,
-                "val cnn loss": cnn_loss,
-                "val order loss": set_ce_loss,
-                "val image": wandb.Image(viz),
+                "val reconstruction loss": set_mse_loss,
+                "val set size loss": set_ce_loss,
+                "val cnn reconstruction loss": cnn_loss,
+                "val image": wandb.Image((viz + 1) / 2),
                 "val percent correct set size preds": pct_correct_sizes,
             },
             commit=False,
