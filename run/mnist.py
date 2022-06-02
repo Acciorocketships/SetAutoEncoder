@@ -201,11 +201,11 @@ def main():
     # val_seq_lens = torch.tensor([4, 6, 8, 10, 12, 14, 10], device=device)
     val_seq_lens = torch.tensor([1, 3, 5, 7, 9, 11, 13, 15], device=device)
     
-    seq_len_range = torch.tensor([2, 16], device=device)
+    seq_len_range = torch.tensor([1, 16], device=device)
     num_seqs_range = (1 / (seq_len_range / batch_size)).int().flip(0)
     model = SeqAE(seq_len_range[1]).to(device)
     print(model)
-    opt = torch.optim.AdamW(model.parameters(), lr=0.001)
+    opt = torch.optim.AdamW(model.parameters(), lr=0.0001)
     graph = wandb.watch(model, log="gradients", log_freq=500)
 
     # train loop
@@ -226,11 +226,12 @@ def main():
                 dtype=torch.int64,
                 device=device,
             )
+            assert torch.all(seq_lens > 0)
             b_idx = torch.repeat_interleave(
                 torch.arange(seq_lens.numel(), device=device), seq_lens
             )
             set_pred, cnn_pred = model(targets, b_idx)
-            cnn_weight = 1 - epoch / epochs
+            cnn_weight = 1.0 #1 - epoch / epochs
             loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
                 targets, set_pred, cnn_pred, cnn_weight
             )
