@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from torch.optim import Adam
 from sae import AutoEncoderInner as AutoEncoder
-from sae import mse_sparse, get_loss_idxs, corr_sparse
+from sae import get_loss_idxs
 from torch.nn import CrossEntropyLoss
 import wandb
 from torch_geometric.data import Data, Batch
