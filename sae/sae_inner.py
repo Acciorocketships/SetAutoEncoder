@@ -42,7 +42,8 @@ class AutoEncoder(nn.Module):
                 "n": self.encoder.get_n(),
                 "x": self.encoder.get_x(),
                 # input to x permutation
-                "x_perm": self.encoder.get_x_perm()
+                "x_perm_idx": self.encoder.get_x_perm(),
+                "x_unperm_idx": self.encoder.get_x_unperm()
             }
 
     def create_data_batch(self, x, n):
@@ -63,13 +64,16 @@ class Encoder(nn.Module):
         self.max_n = max_n
         # Modules
         self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
-        self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
-        self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
-        self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
+        self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
+        self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
+        self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
         self.rank = torch.nn.Linear(self.input_dim, 1)
 
     def get_x_perm(self):
         return self.xs_idx
+
+    def get_x_unperm(self):
+        return self.xs_idx_rev
 
     def sort(self, x, return_idx=False):
         mag = self.rank(x).reshape(-1)
@@ -91,12 +95,14 @@ class Encoder(nn.Module):
         # Zip set start and ends
         xs = []
         xs_idx = []
+        xs_idx_rev = []
         for i, j in zip(ptr[:-1], ptr[1:]):
             x_sorted, idx_sorted = self.sort(x[i:j, :], return_idx=True)
             xs.append(x_sorted)
             xs_idx.append(idx_sorted + i)
         xs = torch.cat(xs, dim=0) # total_nodes x input_dim
         xs_idx = torch.cat(xs_idx, dim=0)
+        self.xs_idx_rev = torch.empty_like(xs_idx).scatter_(0, xs_idx, torch.arange(xs_idx.numel()))
         
         self.xs = xs
         self.xs_idx = xs_idx
@@ -131,14 +137,16 @@ class Decoder(nn.Module):
         self.max_n = max_n
         # Modules
         self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
-        self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=False)
-        self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=False)
+        self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
+        self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=True)
         self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=self.max_n)
 
     def forward(self, z):
         # z: batch_size x hidden_dim
         n_pred = self.size_pred(z) # batch_size x max_n
         self.n_pred = n_pred
+        # Remove ability to pred zero-size sets
+        #self.n_pred[:,0] = self.n_pred[:, 0] - self.n_pred[:, 0]
         n = torch.argmax(n_pred, dim=-1)
         self.n = n
 

@@ -134,48 +134,45 @@ class SeqAE(nn.Module):
         self.cnn_ae = CNNAE()
         self.set_ae = AutoEncoder(
             dim=64,
-            hidden_dim=max_seq_len * 64,
+            hidden_dim=max_seq_len * 64 // 2,
             max_n=max_seq_len,
             pe="onehot",
             data_batch=False,
         )
 
-    def loss(self, cnn_x, set_x_pred, cnn_x_pred=None):
+    def loss(self, cnn_x, set_z_pred, cnn_x_pred=None, cnn_weight=1.0):
         """Computes combined loss given x and reconstructed x.
         Note that although cnn_x and var[x] should be the same,
         var[x] is in fact a permuted version. So do not mess up
         var[x] and x."""
         var = self.set_ae.get_vars()
+        valid_batch_mask = (var["n_pred_hard"] == var["n"]).reshape(-1)
+        pct_correct_sizes = valid_batch_mask.float().sum() / valid_batch_mask.numel()
         pred_idx, tgt_idx = get_loss_idxs(var["n_pred_hard"], var["n"])
-        # This loss computes the difference between the permuted original
-        # and is the total loss, including the cnn errors
-        #set_mse_loss = torch.nn.functional.mse_loss(
-        #    cnn_x[var["x_perm"]][tgt_idx], set_x_pred[pred_idx]
-        #)
-        # This loss computes the error between the cnn reconstruction
-        # and is strictly the loss reponsible for non-cnn errors
+
         set_mse_loss = torch.nn.functional.mse_loss(
-            self.cnn_ae.decoder(var["x"][tgt_idx]), set_x_pred[pred_idx]
+            self.cnn_ae.decoder(set_z_pred)[pred_idx], cnn_x[var["x_perm_idx"]][tgt_idx]
         )
         # Sometimes mse loss can be zero if we predict entirely wrong batches
+        # or predict all batches of size zero
         if torch.isnan(set_mse_loss):
             set_mse_loss = 0
         set_ce_loss = torch.nn.functional.cross_entropy(var["n_pred"], var["n"])
         loss = set_mse_loss + set_ce_loss
 
         if cnn_x_pred is None:
-            return loss, (set_mse_loss, set_ce_loss, 0)
+            return loss, (set_mse_loss, set_ce_loss, 0, pct_correct_sizes)
 
         cnn_loss = torch.nn.functional.mse_loss(cnn_x, cnn_x_pred)
-        loss = loss + cnn_loss
-        return loss, (set_mse_loss, set_ce_loss, cnn_loss)
+        loss = loss + cnn_loss * cnn_weight
+        return loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes)
 
     def forward(self, x, b_idx):
         cnn_feat = self.cnn_ae.encoder(x)
         set_z_pred, set_batch_pred = self.set_ae(cnn_feat, b_idx)
-        set_x_pred = self.cnn_ae.decoder(set_z_pred)
+        #set_x_pred = self.cnn_ae.decoder(set_z_pred)
         cnn_x_pred = self.cnn_ae.decoder(cnn_feat)
-        return set_x_pred, cnn_x_pred
+        return set_z_pred, cnn_x_pred
 
 
 def main():
@@ -190,7 +187,7 @@ def main():
         root="/tmp/datasets", train=True, download=True, transform=transform
     )
     trainloader = torch.utils.data.DataLoader(
-        trainset, batch_size=batch_size, shuffle=True, num_workers=2
+        trainset, batch_size=batch_size, shuffle=True, num_workers=2, drop_last=True
     )
 
     testset = torchvision.datasets.MNIST(
@@ -202,17 +199,17 @@ def main():
     valset = torch.stack([testset[i][0] for i in range(64)], dim=0)
 
     # val_seq_lens = torch.tensor([4, 6, 8, 10, 12, 14, 10], device=device)
-    val_seq_lens = torch.tensor([4] * 16, device=device)
-    seq_len_range = torch.tensor([2, 6], device=device)
+    val_seq_lens = torch.tensor([1, 3, 5, 7, 9, 11, 13, 15], device=device)
+    
+    seq_len_range = torch.tensor([1, 16], device=device)
     num_seqs_range = (1 / (seq_len_range / batch_size)).int().flip(0)
     model = SeqAE(seq_len_range[1]).to(device)
     print(model)
-    opt = torch.optim.AdamW(model.parameters(), lr=0.001)
-    crit = torch.nn.functional.mse_loss
-    graph = wandb.watch(model, crit, log="gradients", log_freq=100)
+    opt = torch.optim.AdamW(model.parameters(), lr=0.0001)
+    graph = wandb.watch(model, log="gradients", log_freq=500)
 
     # train loop
-    epochs = 500
+    epochs = 200
     pbar = tqdm.trange(epochs, position=0, desc="All Epochs", unit="epoch")
     loss = 0
     val_loss = 0
@@ -229,12 +226,14 @@ def main():
                 dtype=torch.int64,
                 device=device,
             )
+            assert torch.all(seq_lens > 0)
             b_idx = torch.repeat_interleave(
                 torch.arange(seq_lens.numel(), device=device), seq_lens
             )
             set_pred, cnn_pred = model(targets, b_idx)
-            loss, (set_mse_loss, set_ce_loss, cnn_loss) = model.loss(
-                targets, set_pred, cnn_pred
+            cnn_weight = 1.0 #1 - epoch / epochs
+            loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
+                targets, set_pred, cnn_pred, cnn_weight
             )
             if not torch.isfinite(loss):
                 print("Warning: got NaN loss, ignoring...")
@@ -247,9 +246,10 @@ def main():
             wandb.log(
                 {
                     "loss": loss,
-                    "set loss": set_mse_loss,
-                    "order loss": set_ce_loss,
-                    "cnn loss": cnn_loss,
+                    "reconstruction loss": set_mse_loss,
+                    "set size loss": set_ce_loss,
+                    "cnn reconstruction loss": cnn_loss,
+                    "percent correct set size preds": pct_correct_sizes,
                     "epoch": epoch,
                 }
             )
@@ -260,27 +260,29 @@ def main():
         )
         with torch.no_grad():
             set_pred, cnn_pred = model(targets, b_idx)
-        val_loss, (set_mse_loss, set_ce_loss, cnn_loss) = model.loss(
-            targets, set_pred, cnn_pred
-        )
+            val_loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
+                targets, set_pred, cnn_pred, cnn_weight
+            )
+        var = model.set_ae.get_vars()
 
         viz = torchvision.utils.make_grid(
             torch.cat([
-                targets[:16], 
-                cnn_pred[:16].clamp(-1, 1), 
-                set_pred[:16].clamp(-1, 1)
+                targets[var["x_perm_idx"]], 
+                cnn_pred[var["x_perm_idx"]].clamp(-1, 1), 
+                model.cnn_ae.decoder(set_pred[:64]).clamp(-1, 1)
             ], dim=0),
-            nrow=16,
+            nrow=64,
         )
 
         pbar.set_description(f"val loss: {val_loss:.3f}")
         wandb.log(
             {
                 "val loss": val_loss,
-                "val set loss": set_mse_loss,
-                "val cnn loss": cnn_loss,
-                "val order loss": set_ce_loss,
-                "val image": wandb.Image(viz),
+                "val reconstruction loss": set_mse_loss,
+                "val set size loss": set_ce_loss,
+                "val cnn reconstruction loss": cnn_loss,
+                "val image": wandb.Image((viz + 1) / 2),
+                "val percent correct set size preds": pct_correct_sizes,
             },
             commit=False,
         )
