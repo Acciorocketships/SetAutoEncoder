@@ -2,7 +2,6 @@ import torch.nn as nn
 from torch import Tensor
 import torch
 import numpy as np
-from torch.optim import Adam
 from torch.nn import MSELoss
 
 

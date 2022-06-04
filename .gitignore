@@ -6,3 +6,4 @@ runs/
 */wandb
 .idea/
 params/
+*.egg-info

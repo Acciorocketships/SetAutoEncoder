@@ -1,8 +1,7 @@
 import torch
-import numpy as np
 from torch.optim import Adam
 from sae import AutoEncoderInner as AutoEncoder
-from sae import get_loss_idxs
+from sae import get_loss_idxs, correlation
 from torch.nn import CrossEntropyLoss
 import wandb
 from torch_geometric.data import Data, Batch
@@ -79,17 +78,19 @@ def run(
 			data_list.append(d)
 		data = Batch.from_data_list(data_list)
 
-		xr = autoencoder(data)
+		xr, _ = autoencoder(data.x, data.batch)
 		var = autoencoder.get_vars()
 
 		pred_idx, tgt_idx = get_loss_idxs(
-			var["n_pred_hard"], var["n"]
+			var["n_pred"], var["n"]
 		)
-		mse_loss = torch.nn.functional.mse_loss(var["x"].x[tgt_idx], xr.x[pred_idx])
-		crossentropy_loss = CrossEntropyLoss()(var["n_pred"], var["n"])
+
+		x = data.x[var["x_perm_idx"]]
+		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
+		crossentropy_loss = CrossEntropyLoss()(var["n_pred_logits"], var["n"])
 		loss = mse_loss + crossentropy_loss
 
-		corr = corr_sparse(var["x"], xr)
+		corr = correlation(x[tgt_idx], xr[pred_idx])
 
 		wandb.log({
 					"loss": mse_loss,
@@ -113,15 +114,6 @@ def run(
 			print(e)
 
 	wandb.finish()
-
-
-
-def test(n=4, dim=8):
-	x = torch.randn(n,dim)
-	xr = autoencoder(x).detach()
-	x = autoencoder.get_vars()['x']
-	corr = np.corrcoef(x.reshape(-1), xr.reshape(-1))[0,1]
-	return {"x": x, "xr": xr, "corr": corr}
 
 
 

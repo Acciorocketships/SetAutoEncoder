@@ -1,6 +1,18 @@
-from torch.nn import MSELoss, CrossEntropyLoss
 import torch
 import numpy as np
+from torch_scatter import scatter
+from torch.nn import CrossEntropyLoss, MSELoss
+from scipy.optimize import linear_sum_assignment
+
+
+def cross_entropy_loss(x1, x2):
+    loss_fn = CrossEntropyLoss(reduction='none')
+    return loss_fn(x1, x2.squeeze(1))
+
+
+def mean_squared_loss(x1, x2):
+    loss_fn = MSELoss(reduction='none')
+    return loss_fn(x1, x2)
 
 
 def get_loss_idxs(set1_lens, set2_lens):
@@ -38,6 +50,43 @@ def get_loss_idxs(set1_lens, set2_lens):
     return ptr1, ptr2
 
 
+def correlation(x1, x2):
+    # finds the correlation coefficient between x1 and x2 across the batch, for each dimension
+    # the output is the mean of the corrs for each dimension
+    corr_mat = np.corrcoef(x1.detach(), x2.detach(), rowvar=False)
+    n = x1.shape[-1]
+    idxs = np.array([(i,i+n) for i in range(n)])
+    corrs = corr_mat[idxs[:,0], idxs[:,1]]
+    corr = np.mean(corrs)
+    return corr
 
 
+def batch_to_set_lens(batch, batch_size=None):
+    return scatter(src=torch.ones(batch.shape), index=batch, dim_size=batch_size, reduce='sum').long()
 
+
+def min_permutation_loss(yhat, y, batch, loss_func=cross_entropy_loss, return_perm=False):
+    n = batch_to_set_lens(batch)
+    n = n[n != 0]
+    ptr = torch.cat([torch.tensor([0]), n], dim=0).cumsum(dim=0)
+    # losses = torch.zeros(n.shape[0])
+    perm = torch.empty(batch.shape, dtype=torch.long)
+    # i = 0
+    for idx_start, idx_end in zip(ptr[:-1], ptr[1:]):
+        yhati = yhat[idx_start:idx_end]
+        yi = y[idx_start:idx_end]
+        size = yi.shape[0]
+        yhati_rep = yhati.repeat((size, 1))
+        yi_rep = yi.repeat_interleave(size, dim=0)
+        loss_pairwise = loss_func(yhati_rep, yi_rep).view(size, size) # loss_pairwise[i,j] = loss_fn(yhati[j], yi[i])
+        assignment = linear_sum_assignment(loss_pairwise.detach().numpy()) # lin_sum_ass(-Cost) calculates the min assignment, given as (row_idxs, col_idxs)
+        perm[idx_start:idx_end] = torch.tensor(assignment[1]) + idx_start
+        # assignment_losses = loss_pairwise[assignment[0], assignment[1]]
+        # losses[i] = torch.sum(assignment_losses)
+        # i += 1
+    # loss = torch.mean(losses)
+    loss = torch.mean(loss_func(yhat[perm], y))
+    if return_perm:
+        return loss, perm
+    else:
+        return loss

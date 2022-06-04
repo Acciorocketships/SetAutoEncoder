@@ -8,7 +8,7 @@ import torchvision.transforms as transforms
 from sae.sae_inner import AutoEncoder
 
 # from sae.sae_hyper import AutoEncoder
-from sae import mse_sparse, get_loss_idxs
+from sae import get_loss_idxs
 import torch_geometric
 from matplotlib import pyplot as plt
 import numpy as np
@@ -146,9 +146,9 @@ class SeqAE(nn.Module):
         var[x] is in fact a permuted version. So do not mess up
         var[x] and x."""
         var = self.set_ae.get_vars()
-        valid_batch_mask = (var["n_pred_hard"] == var["n"]).reshape(-1)
+        valid_batch_mask = (var["n_pred"] == var["n"]).reshape(-1)
         pct_correct_sizes = valid_batch_mask.float().sum() / valid_batch_mask.numel()
-        pred_idx, tgt_idx = get_loss_idxs(var["n_pred_hard"], var["n"])
+        pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
 
         set_mse_loss = torch.nn.functional.mse_loss(
             self.cnn_ae.decoder(set_z_pred)[pred_idx], cnn_x[var["x_perm_idx"]][tgt_idx]
@@ -157,7 +157,7 @@ class SeqAE(nn.Module):
         # or predict all batches of size zero
         if torch.isnan(set_mse_loss):
             set_mse_loss = 0
-        set_ce_loss = torch.nn.functional.cross_entropy(var["n_pred"], var["n"])
+        set_ce_loss = torch.nn.functional.cross_entropy(var["n_pred_logits"], var["n"])
         loss = set_mse_loss + set_ce_loss
 
         if cnn_x_pred is None:

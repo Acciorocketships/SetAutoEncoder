@@ -6,4 +6,4 @@ from sae.sae_inner import AutoEncoder as AutoEncoderInner
 from sae.sae_inner import Encoder as EncoderInner
 from sae.sae_inner import Decoder as DecoderInner
 
-from sae.loss import mse_sparse, corr_sparse, get_loss_idxs
+from sae.loss import *

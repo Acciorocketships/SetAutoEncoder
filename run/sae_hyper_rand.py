@@ -1,8 +1,7 @@
 import torch
-import numpy as np
 from torch.optim import Adam
 from sae import AutoEncoderHyper as AutoEncoder
-from sae import mse_sparse, corr_sparse
+from sae import get_loss_idxs, correlation
 from torch.nn import CrossEntropyLoss
 import wandb
 from torch_geometric.data import Data, Batch
@@ -15,9 +14,7 @@ def experiments():
 	trials = {
 		"hyper/vanilla": {},
 		# "hyper/no-encode-val": {"encode_val": False},
-		# "hyper/no-encode-val_no-bias": {"encode_val": False, "hypernet_bias": False},
-		# "hyper/layernorm": {"layernorm": True},
-		# "hyper/hidden-dim-48": {"hidden_dim": 48},
+		# "hyper/non-elementwise": {"elementwise": False},
 	}
 	default = {
 		"dim": 8,
@@ -48,7 +45,10 @@ def run(
 			**kwargs,
 		):
 
-	autoencoder = AutoEncoder(dim=dim, hidden_dim=hidden_dim, max_n=max_n, data_batch=True, **kwargs)
+	autoencoder = AutoEncoder(dim=dim,
+							  hidden_dim=hidden_dim,
+							  max_n=max_n,
+							  **kwargs)
 
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
@@ -81,14 +81,19 @@ def run(
 			data_list.append(d)
 		data = Batch.from_data_list(data_list)
 
-		xr = autoencoder(data)
+		xr, _ = autoencoder(data.x, data.batch)
 		var = autoencoder.get_vars()
 
-		mse_loss = mse_sparse(var["x"], xr)
-		crossentropy_loss = CrossEntropyLoss()(var["n_pred"], var["n"])
+		pred_idx, tgt_idx = get_loss_idxs(
+			var["n_pred"], var["n"]
+		)
+
+		x = data.x[var["x_perm_idx"]]
+		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
+		crossentropy_loss = CrossEntropyLoss()(var["n_pred_logits"], var["n"])
 		loss = mse_loss + crossentropy_loss
 
-		corr = corr_sparse(var["x"], xr)
+		corr = correlation(x[tgt_idx], xr[pred_idx])
 
 		wandb.log({
 					"loss": mse_loss,
@@ -112,15 +117,6 @@ def run(
 			print(e)
 
 	wandb.finish()
-
-
-
-def test(n=4, dim=8):
-	x = torch.randn(n,dim)
-	xr = autoencoder(x).detach()
-	x = autoencoder.get_vars()['x']
-	corr = np.corrcoef(x.reshape(-1), xr.reshape(-1))[0,1]
-	return {"x": x, "xr": xr, "corr": corr}
 
 
 

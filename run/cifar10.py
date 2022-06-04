@@ -6,7 +6,7 @@ from torch import nn
 import torchvision
 import torchvision.transforms as transforms
 from sae.sae_inner import AutoEncoder
-from sae import mse_sparse, get_loss_idxs
+from sae import get_loss_idxs
 import torch_geometric
 from matplotlib import pyplot as plt
 import numpy as np
