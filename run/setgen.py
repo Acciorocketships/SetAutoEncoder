@@ -8,7 +8,8 @@ from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
 from sae import DecoderInner as Decoder
 from sae.mlp import build_mlp
-from sae import get_loss_idxs, batch_to_set_lens, min_permutation_loss, cross_entropy_loss
+from sae import get_loss_idxs, batch_to_set_lens
+from sae import min_permutation_loss, fixed_order_loss, cross_entropy_loss
 
 
 ## Run
@@ -20,11 +21,13 @@ def experiments():
 	default = {
 		"set_size": 7,
 		"batch_size": 64,
+		"loss_type": "fixed_order",
 		"epochs": 100000,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()
 		config.update(cfg)
+		config["name"] = name
 		run(**config)
 
 def run(
@@ -32,17 +35,19 @@ def run(
 			epochs = 10000,
 			batch_size = 32,
 			name = None,
-			**kwargs,
+			loss_type="fixed_order",
 		):
 
-	model = VariableNeuralNetwork(input_dim=set_size, output_dim=set_size, max_n=set_size)
+	config = locals()
 
 	wandb.init(
 			entity = "prorok-lab",
 			project = "sae-setgen",
 			name = name,
-			# config = config,
+			config = config,
 		)
+
+	model = VariableNeuralNetwork(input_dim=set_size, output_dim=set_size, max_n=set_size)
 
 	optim = Adam(model.parameters())
 
@@ -62,13 +67,20 @@ def run(
 			pred_idx, tgt_idx = get_loss_idxs(n_pred, n)
 
 			# loss
-			class_loss = min_permutation_loss(
-				yhat=yhat[pred_idx],
-				y=y[tgt_idx],
-				batch=batch_out[pred_idx],
-				loss_func=cross_entropy_loss,
-				return_perm=False,
-			)
+			if loss_type == "fixed_order":
+				class_loss = fixed_order_loss(
+					yhat=yhat[pred_idx],
+					y=y[tgt_idx],
+					batch=batch_out[pred_idx],
+					loss_fn=cross_entropy_loss,
+				)
+			elif loss_type == "min_permutation":
+				class_loss = min_permutation_loss(
+					yhat=yhat[pred_idx],
+					y=y[tgt_idx],
+					batch=batch_out[pred_idx],
+					loss_fn=cross_entropy_loss,
+				)
 			size_loss = CrossEntropyLoss()(n_pred_logits, n)
 			loss = class_loss + size_loss
 

@@ -65,28 +65,48 @@ def batch_to_set_lens(batch, batch_size=None):
     return scatter(src=torch.ones(batch.shape), index=batch, dim_size=batch_size, reduce='sum').long()
 
 
-def min_permutation_loss(yhat, y, batch, loss_func=cross_entropy_loss, return_perm=False):
+def min_permutation_idxs(yhat, y, batch, loss_fn=cross_entropy_loss):
     n = batch_to_set_lens(batch)
     n = n[n != 0]
     ptr = torch.cat([torch.tensor([0]), n], dim=0).cumsum(dim=0)
-    # losses = torch.zeros(n.shape[0])
     perm = torch.empty(batch.shape, dtype=torch.long)
-    # i = 0
     for idx_start, idx_end in zip(ptr[:-1], ptr[1:]):
         yhati = yhat[idx_start:idx_end]
         yi = y[idx_start:idx_end]
         size = yi.shape[0]
         yhati_rep = yhati.repeat((size, 1))
         yi_rep = yi.repeat_interleave(size, dim=0)
-        loss_pairwise = loss_func(yhati_rep, yi_rep).view(size, size) # loss_pairwise[i,j] = loss_fn(yhati[j], yi[i])
+        loss_pairwise = loss_fn(yhati_rep, yi_rep).view(size, size) # loss_pairwise[i,j] = loss_fn(yhati[j], yi[i])
         assignment = linear_sum_assignment(loss_pairwise.detach().numpy()) # lin_sum_ass(-Cost) calculates the min assignment, given as (row_idxs, col_idxs)
         perm[idx_start:idx_end] = torch.tensor(assignment[1]) + idx_start
-        # assignment_losses = loss_pairwise[assignment[0], assignment[1]]
-        # losses[i] = torch.sum(assignment_losses)
-        # i += 1
-    # loss = torch.mean(losses)
-    loss = torch.mean(loss_func(yhat[perm], y))
-    if return_perm:
-        return loss, perm
-    else:
-        return loss
+    return perm
+
+
+def min_permutation_loss(yhat, y, batch, loss_fn=cross_entropy_loss):
+    perm = min_permutation_idxs(yhat=yhat, y=y, batch=batch, loss_fn=loss_fn)
+    loss = torch.mean(loss_fn(yhat[perm], y))
+    return loss
+
+
+def fixed_order_idxs(y, batch, order_fn=lambda y: y.float() @ torch.arange(1,y.shape[1]+1).float()):
+    # order_fn: takes y (n x d) as input, outputs a scalar (n) to be used for sorting
+    if order_fn is None:
+        return slice(None) #torch.arange(batch.shape[0])
+    n = batch_to_set_lens(batch)
+    n = n[n != 0]
+    ptr = torch.cat([torch.tensor([0]), n], dim=0).cumsum(dim=0)
+    perm = torch.empty(batch.shape, dtype=torch.long)
+    for idx_start, idx_end in zip(ptr[:-1], ptr[1:]):
+        yi = y[idx_start:idx_end]
+        rank = order_fn(yi)
+        idxs = torch.sort(rank)[1]
+        perm[idx_start:idx_end] = torch.as_tensor(idxs) + idx_start
+    return perm
+
+
+def fixed_order_loss(y, yhat, batch, loss_fn=cross_entropy_loss, order_fn=None):
+    y_perm = fixed_order_idxs(y=y, batch=batch, order_fn=order_fn)
+    y_ord = y[y_perm]
+    yhat_ord = yhat[y_perm]
+    loss = torch.mean(loss_fn(yhat_ord, y_ord))
+    return loss
