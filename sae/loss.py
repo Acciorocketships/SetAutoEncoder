@@ -1,18 +1,16 @@
 import torch
 import numpy as np
 from torch_scatter import scatter
-from torch.nn import CrossEntropyLoss, MSELoss
+from torch.nn.functional import cross_entropy, mse_loss
 from scipy.optimize import linear_sum_assignment
 
 
 def cross_entropy_loss(x1, x2):
-    loss_fn = CrossEntropyLoss(reduction='none')
-    return loss_fn(x1, x2.squeeze(1))
+    return cross_entropy(x1, x2.squeeze(1), reduction='none')
 
 
 def mean_squared_loss(x1, x2):
-    loss_fn = MSELoss(reduction='none')
-    return loss_fn(x1, x2)
+    return mse_loss(x1, x2, reduction='none')
 
 
 def get_loss_idxs(set1_lens, set2_lens):

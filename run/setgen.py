@@ -22,7 +22,7 @@ def experiments():
 		"set_size": 7,
 		"batch_size": 64,
 		"loss_type": "fixed_order",
-		"epochs": 100000,
+		"epochs": 10000,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()

@@ -1,34 +1,29 @@
 import torch
 from torch.optim import Adam
-from sae import AutoEncoderInner as AutoEncoder
+from sae import EncoderInner, DecoderInner
+from sae import AutoEncoderNew as AutoEncoder
 from sae import get_loss_idxs, correlation
 from torch.nn import CrossEntropyLoss
 import wandb
 from torch_geometric.data import Data, Batch
 
 torch.set_printoptions(precision=2, sci_mode=False)
-model_path_base="params/sae_inner_rand-{name}.pt"
-optim_path_base = "params/optim_inner_rand-{name}.pt"
+project = "sae-rand"
 
 def experiments():
 	trials = {
-		"inner/vanilla": {},
-		# "inner/layernorm": {"layernorm": True},
-		# "inner/hidden-dim-48": {"hidden_dim": 48},
+		"encoder=new": {},
 	}
 	default = {
 		"dim": 8,
-		"hidden_dim": 64,
-		"max_n": 6,
-		"epochs": 500000,
-		"load": False,
+		"hidden_dim": 32,
+		"max_n": 8,
+		"epochs": 50000,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()
 		config.update(cfg)
 		config["name"] = name
-		config["model_path"] = model_path_base.format(name=name)
-		config["optim_path"] = optim_path_base.format(name=name)
 		run(**config)
 
 
@@ -38,35 +33,29 @@ def run(
 			max_n = 6,
 			epochs = 100000,
 			batch_size = 16,
-			model_path = model_path_base.format(name="base"),
-			optim_path = optim_path_base.format(name="base"),
 			name = None,
-			load = False,
+			encoder = 'new',
+			decoder = 'new',
 			**kwargs,
 		):
 
 	autoencoder = AutoEncoder(dim=dim, hidden_dim=hidden_dim, max_n=max_n, data_batch=True, **kwargs)
+	if encoder == 'inner':
+		autoencoder.encoder = EncoderInner(dim=dim, hidden_dim=hidden_dim, **kwargs)
+	if decoder == 'inner':
+		autoencoder.decoder = DecoderInner(hidden_dim=hidden_dim, dim=dim, **kwargs)
 
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
 
 	wandb.init(
 			entity = "prorok-lab",
-			project = "sae",
+			project = project,
 			name = name,
 			config = config,
 		)
 
 	optim = Adam(autoencoder.parameters())
-
-	if load:
-		try:
-			model_state_dict = torch.load(model_path)
-			autoencoder.load_state_dict(model_state_dict)
-			optim_state_dict = torch.load(optim_path)
-			optim.load_state_dict(optim_state_dict)
-		except Exception as e:
-			print(e)
 
 	for t in range(epochs):
 
@@ -101,15 +90,6 @@ def run(
 		optim.step()
 
 		optim.zero_grad()
-
-	if load:
-		try:
-			model_state_dict = autoencoder.state_dict()
-			torch.save(model_state_dict, model_path)
-			optim_state_dict = optim.state_dict()
-			torch.save(optim_state_dict, optim_path)
-		except Exception as e:
-			print(e)
 
 	wandb.finish()
 

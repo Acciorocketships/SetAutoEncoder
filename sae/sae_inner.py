@@ -38,11 +38,12 @@ class Encoder(nn.Module):
 		self.input_dim = dim
 		self.hidden_dim = hidden_dim
 		self.max_n = max_n + 1
+		self.layernorm = kwargs.get("layernorm_encoder", False)
 		# Modules
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
 		self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
 		self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
-		self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
+		self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=self.layernorm)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
 
 	def get_x_perm(self):
@@ -107,10 +108,11 @@ class Decoder(nn.Module):
 		self.output_dim = dim
 		self.hidden_dim = hidden_dim
 		self.max_n = max_n + 1
+		self.layernorm = kwargs.get("layernorm_decoder", False)
 		# Modules
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
 		self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
-		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=True)
+		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=self.layernorm)
 		self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=self.max_n)
 
 	def forward(self, z):
