@@ -6,7 +6,8 @@ from torch_geometric.data import Data, Batch
 from torch_geometric.loader import DataLoader
 from torch.optim import Adam
 from torch.nn import CrossEntropyLoss
-from sae import DecoderInner as Decoder
+# from sae import DecoderInner as Decoder
+from sae import DecoderNew as Decoder
 from sae.mlp import build_mlp
 from sae import get_loss_idxs, batch_to_set_lens
 from sae import min_permutation_loss, fixed_order_loss, cross_entropy_loss
@@ -17,6 +18,7 @@ from sae import min_permutation_loss, fixed_order_loss, cross_entropy_loss
 def experiments():
 	trials = {
 		"vanilla": {},
+		"no-mlp/valnet": {"mlp": False, "nlayers_valnet": 3},
 	}
 	default = {
 		"set_size": 7,
@@ -36,6 +38,7 @@ def run(
 			batch_size = 32,
 			name = None,
 			loss_type="fixed_order",
+			**kwargs,
 		):
 
 	config = locals()
@@ -47,8 +50,7 @@ def run(
 			config = config,
 		)
 
-	model = VariableNeuralNetwork(input_dim=set_size, output_dim=set_size, max_n=set_size)
-
+	model = VariableNeuralNetwork(input_dim=set_size, output_dim=set_size, max_n=set_size, **kwargs)
 	optim = Adam(model.parameters())
 
 	for t in range(epochs):
@@ -63,7 +65,8 @@ def run(
 
 			n = batch_to_set_lens(data.batch, x.shape[0])
 			n_pred = batch_to_set_lens(batch_out, x.shape[0])
-			n_pred_logits = model.get_n_pred()
+			n_pred_logits = model.decoder.get_n_pred_logits()
+			n_logits = model.decoder.pos_gen(n)
 			pred_idx, tgt_idx = get_loss_idxs(n_pred, n)
 
 			# loss
@@ -81,7 +84,7 @@ def run(
 					batch=batch_out[pred_idx],
 					loss_fn=cross_entropy_loss,
 				)
-			size_loss = CrossEntropyLoss()(n_pred_logits, n)
+			size_loss = torch.mean(cross_entropy_loss(n_pred_logits, n_logits))
 			loss = class_loss + size_loss
 
 			wandb.log({
@@ -116,21 +119,21 @@ def bin_array(num, m):
 
 class VariableNeuralNetwork(nn.Module):
 
-	def __init__(self, input_dim, output_dim, max_n=None):
+	def __init__(self, input_dim, output_dim, max_n=None, mlp=True, nlayers_valnet=0, **kwargs):
 		super().__init__()
 		self.input_dim = input_dim
 		self.hidden_dim = input_dim
 		self.output_dim = output_dim
 		self.max_n = max_n
-		self.encoder = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=3, midmult=1.5, nonlinearity=nn.ReLU)
-		self.decoder = Decoder(hidden_dim=self.hidden_dim, dim=self.output_dim, max_n=self.max_n)
+		self.use_mlp = mlp
+		if self.use_mlp:
+			self.mlp = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=3, midmult=1.5, nonlinearity=nn.ReLU)
+		self.decoder = Decoder(hidden_dim=self.hidden_dim, dim=self.output_dim, max_n=self.max_n, nlayers_valnet_decoder=nlayers_valnet, pos_mode='onehot')
 
 	def forward(self, x):
-		enc = self.encoder(x)
-		return self.decoder(enc)
-
-	def get_n_pred(self):
-		return self.decoder.get_n_pred()
+		if self.use_mlp:
+			x = self.mlp(x)
+		return self.decoder(x)
 
 
 if __name__ == '__main__':

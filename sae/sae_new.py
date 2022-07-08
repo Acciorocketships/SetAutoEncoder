@@ -20,8 +20,8 @@ class AutoEncoder(nn.Module):
 
 	def get_vars(self):
 		return {
-			"n_pred_logits": self.decoder.get_n_pred(),
-			"n_pred": self.decoder.get_n(),
+			"n_pred_logits": self.decoder.get_n_pred_logits(),
+			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
 			# input to x permutation
 			"x_perm_idx": self.encoder.get_x_perm(),
@@ -66,13 +66,14 @@ class Encoder(nn.Module):
 		_, idx = torch.sort(mag, dim=0)
 		return x[idx], idx
 
-	def forward(self, x, batch=None):
+	def forward(self, x, batch=None, n_batches=None):
 		# x: n x input_dim
 		_, input_dim = x.shape
 		if batch is None:
 			batch = torch.zeros(x.shape[0])
+		self.batch = batch
 
-		n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum').long()  # batch_size
+		n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum', dim_size=n_batches).long()  # batch_size
 		ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
 		self.n = n
 
@@ -89,12 +90,12 @@ class Encoder(nn.Module):
 		self.xs = xs
 		self.xs_idx = xs_idx
 
-		keys = torch.cat([torch.arange(ni) for ni in n], dim=0).int() # batch_size
+		keys = torch.cat([torch.arange(ni) for ni in n], dim=0).int() # batch_size]
 		pos = self.pos_gen(keys) # batch_size x hidden_dim
 
 		# Deepset
 		y1_ds = self.val_net_deepset(xs) * self.key_net_deepset(pos) # total_nodes x hidden_dim
-		y2_ds = scatter(src=y1_ds, index=batch, dim=-2, reduce='sum') # batch_size x dim
+		y2_ds = scatter(src=y1_ds, index=batch, dim=-2, reduce='sum', dim_size=n_batches) # batch_size x dim
 		z_ds = self.encoder_deepset(y2_ds) # batch_size x hidden_dim
 		z_ds_rep = torch.repeat_interleave(z_ds, n, dim=0)
 
@@ -102,15 +103,21 @@ class Encoder(nn.Module):
 		x_in = torch.cat([xs, z_ds_rep], dim=1)
 		pos_in = torch.cat([pos, z_ds_rep], dim=1)
 		y1 = self.val_net_main(x_in) * self.key_net_main(pos_in)  # total_nodes x hidden_dim
-		y2 = scatter(src=y1, index=batch, dim=-2, reduce='sum')  # batch_size x dim
+		y2 = scatter(src=y1, index=batch, dim=-2, reduce='sum', dim_size=n_batches)  # batch_size x dim
 		pos_n = self.pos_gen(n)  # batch_size x max_n
 		y3 = torch.cat([y2, pos_n], dim=-1)  # batch_size x (hidden_dim + max_n)
 		z = self.encoder_main(y3)  # batch_size x hidden_dim
 
 		return z
 
+	def get_batch(self):
+		return self.batch
+
 	def get_x(self):
 		return self.xs
+
+	def get_n_logits(self):
+		return self.pos_gen(self.n)
 
 	def get_n(self):
 		return self.n
@@ -139,10 +146,14 @@ class Decoder(nn.Module):
 
 	def forward(self, z):
 		# z: batch_size x hidden_dim
-		n_pred = self.size_pred(z) # batch_size x max_n
-		self.n_pred = n_pred
-		n = torch.argmax(n_pred, dim=-1)
-		self.n = n
+		n_logits = self.size_pred(z) # batch_size x max_n
+		if self.pos_mode == "onehot":
+			n = self.pos_gen.onehot_logits_to_int(n_logits)
+		elif self.pos_mode == "binary":
+			b = self.pos_gen.binary_logits_to_binary(n_logits)
+			n = self.pos_gen.binary_to_int(b)
+		self.n_pred_logits = n_logits
+		self.n_pred = n
 
 		k = torch.cat([torch.arange(ni) for ni in n], dim=0)
 		pos = self.pos_gen(k) # total_nodes x max_n
@@ -157,15 +168,23 @@ class Decoder(nn.Module):
 		zp = vals_rep * keys
 
 		x = self.decoder(zp)
-
 		batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
+
+		self.x = x
+		self.batch = batch
 		return x, batch
+
+	def get_n_pred_logits(self):
+		return self.n_pred_logits
 
 	def get_n_pred(self):
 		return self.n_pred
 
-	def get_n(self):
-		return self.n
+	def get_x_pred(self):
+		return self.x
+
+	def get_batch_pred(self):
+		return self.batch
 
 
 class PositionalEncoding(nn.Module):
@@ -175,21 +194,12 @@ class PositionalEncoding(nn.Module):
 		self.dim = dim
 		self.mode = mode
 		self.I = torch.eye(self.dim).byte()
-		self.freq_initialised = False
 
 	def forward(self, x: Tensor) -> Tensor:
 		if self.mode == 'onehot':
 			return self.onehot(x.int()).float()
 		elif self.mode == 'binary':
 			return self.binary(x.int()).float()
-		elif self.mode == 'freq':
-			return self.freq(x.int()).float()
-
-	def freq(self, x: Tensor) -> Tensor:
-		if not self.freq_initialised:
-			self.init_freq()
-		out_shape = list(x.shape) + [self.dim]
-		return self.pe[x.reshape(-1)].reshape(*out_shape)
 
 	def onehot(self, x: Tensor) -> Tensor:
 		out_shape = list(x.shape) + [self.dim]
@@ -202,18 +212,18 @@ class PositionalEncoding(nn.Module):
 
 	def binary_to_int(self, x: Tensor) -> Tensor:
 		multiplier = 2 ** torch.arange(x.shape[-1]).float().view(-1,1)
-		y = x @ multiplier
-		return (y-1).int()
+		y = x.float() @ multiplier
+		return (y-1).squeeze(1).int()
 
-def init_freq(self):
-		max_len = 2 * self.dim
-		position = torch.arange(max_len).unsqueeze(1)
-		self.pe = torch.zeros(max_len, self.dim)
-		self.pe[:, 0::2] = torch.sin(
-			position * torch.exp(torch.arange(0, self.dim, 2) * (-math.log(10000.0) / self.dim)))
-		self.pe[:, 1::2] = torch.cos(
-			position * torch.exp(torch.arange(1, self.dim, 2) * (-math.log(10000.0) / self.dim)))
-		self.freq_initialised = True
+	def binary_logits_to_binary(self, x: Tensor) -> Tensor:
+		xs = torch.softmax(x, dim=1)
+		max_mag = torch.max(xs, dim=1)[0]
+		xs_reg = xs / max_mag[:,None]
+		binary = (xs_reg > 0.5).int()
+		return binary
+
+	def onehot_logits_to_int(self, x: Tensor) -> Tensor:
+		return torch.argmax(x, dim=-1)
 
 
 
@@ -223,6 +233,11 @@ if __name__ == '__main__':
 	dim = 3
 	max_n = 5
 	batch_size = 16
+
+	# pos = PositionalEncoding(dim=3, mode='binary')
+	# x = torch.randn(10,3)
+	# b = pos.binary_logits_to_binary(x)
+	# i = pos.binary_to_int(b)
 
 	# pos = PositionalEncoding(dim=6, mode='binary')
 	# k = torch.arange(4)

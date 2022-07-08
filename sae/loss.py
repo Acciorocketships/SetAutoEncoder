@@ -6,11 +6,13 @@ from scipy.optimize import linear_sum_assignment
 
 
 def cross_entropy_loss(x1, x2):
-    return cross_entropy(x1, x2.squeeze(1), reduction='none')
+    if len(x2.shape) == 2 and x2.shape[1] == 1:
+        x2 = x2.squeeze(1)
+    return cross_entropy(x1, x2, reduction='none')
 
 
 def mean_squared_loss(x1, x2):
-    return mse_loss(x1, x2, reduction='none')
+    return torch.mean(mse_loss(x1, x2, reduction='none'), dim=-1)
 
 
 def get_loss_idxs(set1_lens, set2_lens):
@@ -105,6 +107,6 @@ def fixed_order_idxs(y, batch, order_fn=lambda y: y.float() @ torch.arange(1,y.s
 def fixed_order_loss(y, yhat, batch, loss_fn=cross_entropy_loss, order_fn=None):
     y_perm = fixed_order_idxs(y=y, batch=batch, order_fn=order_fn)
     y_ord = y[y_perm]
-    yhat_ord = yhat[y_perm]
-    loss = torch.mean(loss_fn(yhat_ord, y_ord))
+    # yhat_ord = yhat[y_perm]
+    loss = torch.mean(loss_fn(yhat, y_ord))
     return loss

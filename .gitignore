@@ -4,6 +4,7 @@ __pycache__/
 .DS_Store
 runs/
 */wandb
+run/fusion/wandb/
 .idea/
 params/
 *.egg-info

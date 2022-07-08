@@ -21,8 +21,8 @@ class AutoEncoder(nn.Module):
 
 	def get_vars(self):
 		return {
-			"n_pred_logits": self.decoder.get_n_pred(),
-			"n_pred": self.decoder.get_n(),
+			"n_pred_logits": self.decoder.get_n_pred_logits(),
+			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
 			# input to x permutation
 			"x_perm_idx": self.encoder.get_x_perm(),
@@ -141,10 +141,10 @@ class Decoder(nn.Module):
 		batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
 		return x, batch
 
-	def get_n_pred(self):
+	def get_n_pred_logits(self):
 		return self.n_pred
 
-	def get_n(self):
+	def get_n_pred(self):
 		return self.n
 
 
