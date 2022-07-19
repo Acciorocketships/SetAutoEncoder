@@ -26,22 +26,16 @@ class Visualiser:
 		return shape
 
 	def get_data(self, model, agent=0, layer=0):
-		if layer == 0:
-			x_true = model.encode_gnn.input
-			batch_true = model.encode_gnn.encoder.get_batch()
-			perm = model.encode_gnn.encoder.get_x_perm()
-			x_pred = model.merge_gnn.get_values("x_pred")[0]
-			batch_pred = model.merge_gnn.get_values("batch_pred")[0]
-		elif layer == model.gnn_nlayers:
+		if layer == model.gnn_nlayers:
 			x_true = model.merge_gnn.get_values("x_output")[-1]
 			batch_true = model.merge_gnn.get_values("batch_output")[-1]
 			perm = model.merge_gnn.get_values("perm_output")[-1]
 			x_pred = model.decoder.get_x_pred()
 			batch_pred = model.decoder.get_batch_pred()
 		else:
-			x_true = model.merge_gnn.get_values("x_output")[layer-1]
-			batch_true = model.merge_gnn.get_values("batch_output")[layer-1]
-			perm = model.merge_gnn.get_values("perm_output")[layer-1]
+			x_true = model.merge_gnn.get_values("x_output")[layer]
+			batch_true = model.merge_gnn.get_values("batch_output")[layer]
+			perm = model.merge_gnn.get_values("perm_output")[layer]
 			x_pred = model.merge_gnn.get_values("x_pred")[layer]
 			batch_pred = model.merge_gnn.get_values("batch_pred")[layer]
 		agent_pos = model.encode_gnn.agent_pos[agent]
@@ -62,6 +56,17 @@ class Visualiser:
 		if pred:
 			self.show_objects(x_pred_subset.detach(), agent_pos, alpha=1.)
 			self.caption = self.create_caption(x_pred_subset)
+
+	def visualise_map(self, data, agent=0):
+		self.viewer.geoms = []
+		batch_num = data['agent'].batch[agent]
+		datai = data[batch_num]
+		obj_feat = datai['object'].x
+		obj_pos = datai['object'].pos
+		agent_pos = data['agent'].pos[agent]
+		x = torch.cat([obj_feat, obj_pos], dim=1)
+		self.show_objects(x, agent_pos=agent_pos)
+		self.caption = self.create_caption(x)
 
 	def create_caption(self, x, agent_pos=None):
 		torch.set_printoptions(precision=2)

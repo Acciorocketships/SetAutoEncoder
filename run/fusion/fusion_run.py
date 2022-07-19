@@ -5,19 +5,24 @@ from fusion_dataset import ObsEnv
 from fusion_model import FusionModel
 from visualiser import Visualiser
 
+
 project = "fusion"
 
 ## Run
 
 def experiments():
 	trials = {
-		"vanilla": {"log": True, "position": "rel"},
+		"refactor": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,
 		"pos_dim": 2,
-		"batch_size": 256,
+		"batch_size": 64,
 		"epochs": 100000,
+		"gnn_nlayers": 2,
+		"position": "rel",
+		"obs_range": 0.3,
+		"mean_objects": 10,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()
@@ -35,7 +40,6 @@ def run(
 			dataset_size = 1000,
 			name = None,
 			log = True,
-			loss_type="fixed_order",
 			**kwargs,
 		):
 
@@ -50,7 +54,8 @@ def run(
 			)
 
 	env = ObsEnv(feat_dim=feat_dim, pos_dim=pos_dim, mean_agents=mean_agents, mean_objects=mean_objects, **kwargs)
-	vis = Visualiser()
+
+	vis = Visualiser(visible=False)
 
 	model = FusionModel(input_dim=feat_dim, max_agents=2*mean_agents, max_obj=2*mean_objects, **kwargs)
 	optim = Adam(model.parameters())
@@ -61,6 +66,7 @@ def run(
 		batch = env.sample_n(dataset_size)
 		loader = DataLoader(batch.to_data_list(), batch_size=batch_size, shuffle=True)
 
+		data = None
 		for data in loader:
 
 			yhat, batchhat = model(data)
@@ -76,19 +82,39 @@ def run(
 				wandb.log(loss_data, step=i)
 
 		if log:
-			vis.visualise_obs(model, agent=0, layer=0, true=True, pred=False)
-			true_img = vis.render()
-			true_caption = vis.caption
-			vis.visualise_obs(model, agent=0, layer=0, true=False, pred=True)
-			pred_img = vis.render()
-			pred_caption = vis.caption
-			wandb_trueimg = wandb.Image(true_img, caption=true_caption)
-			wandb_predimg = wandb.Image(pred_img, caption=pred_caption)
-			wandb.log({"Layer 0 True Obj": wandb_trueimg, "Layer 0 Pred Obj": wandb_predimg}, step=i)
+			imgs = get_layer_rendering(model, data, agent=0, vis=vis)
+			wandb.log(imgs, step=i)
 
 	wandb.finish()
 
 
+def get_layer_rendering(model, data, agent=0, vis=None):
+	if vis is None:
+		vis = Visualiser(visible=False)
+	imgs = {}
+	for layer in range(model.gnn_nlayers+1):
+		vis.visualise_obs(model, agent=agent, layer=layer, true=True, pred=False)
+		true_img = vis.render()
+		true_caption = vis.caption
+		vis.visualise_obs(model, agent=agent, layer=layer, true=False, pred=True)
+		pred_img = vis.render()
+		pred_caption = vis.caption
+		wandb_trueimg = wandb.Image(true_img, caption=true_caption)
+		wandb_predimg = wandb.Image(pred_img, caption=pred_caption)
+		imgs["Layer {layer} True".format(layer=layer)] = wandb_trueimg
+		imgs["Layer {layer} Pred".format(layer=layer)] = wandb_predimg
+	vis.visualise_map(data, agent=agent)
+	map_img = vis.render()
+	map_caption = vis.caption
+	wandb_mapimg = wandb.Image(map_img, caption=map_caption)
+	imgs["Full Map"] = wandb_mapimg
+	return imgs
+
+
+def render_model(model, data):
+	from torchviz import make_dot
+	yhat, batchhat = model(data[0])
+	make_dot(yhat, params=dict(list(model.named_parameters()))).render("model", format="png")
 
 if __name__ == '__main__':
 	experiments()
