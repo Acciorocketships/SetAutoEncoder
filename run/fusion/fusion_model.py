@@ -109,7 +109,7 @@ class FusionModel(nn.Module):
 
 	def merge_size_loss(self, n_true):
 		layer_size_losses = []
-		n_trues = [n_true] + self.merge_gnn.get_values("n_output")[:-1]
+		n_trues = self.merge_gnn.get_values("n_output")
 		n_pred_logits = self.merge_gnn.get_values("n_pred_logits")
 		max_n = self.merge_gnn.get_values("max_n")
 		for i in range(self.gnn_nlayers):
