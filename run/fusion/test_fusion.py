@@ -120,8 +120,8 @@ class TestFusion(unittest.TestCase):
         merge_gnn = MergeGNN(in_channels=self.hidden_dim, out_channels=self.hidden_dim, orig_dim=self.feat_dim+2, max_obj=self.mean_obj*2, position=position)
 
         import types
-        def message(gnn_self, x_i, pos_i, pos_j, idx_i, idx_j):
-            gnn_self.x_edge, gnn_self.x_idx_edge = gnn_self.input_decoder(x_i) # i is the src, j is self
+        def message(gnn_self, x_j, pos_i, pos_j, idx_i, idx_j):
+            gnn_self.x_edge, gnn_self.x_idx_edge = gnn_self.input_decoder(x_j) # i is the src, j is self
 
             gnn_self.src_idx = gnn_self.edge_index[1, gnn_self.x_idx_edge]  # = idx_i.repeat_interleave(objs_per_agent)
             gnn_self.agent_idx = gnn_self.edge_index[0, gnn_self.x_idx_edge]  # = idx_j.repeat_interleave(objs_per_agent)

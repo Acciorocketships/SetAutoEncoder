@@ -94,7 +94,7 @@ class FusionModel(nn.Module):
 
 		# Merge Layers Loss
 		merge_size_loss = self.merge_size_loss(n_true=obj_per_agent_obs)
-		merge_element_loss, merge_corr = self.merge_corr_loss(return_corr=True, layers=[0])
+		merge_element_loss, merge_corr = self.merge_corr_loss(return_corr=True)
 
 		loss = merge_size_loss + 50 * merge_element_loss
 

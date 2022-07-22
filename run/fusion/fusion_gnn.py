@@ -22,7 +22,7 @@ class EncodeGNN(MessagePassing):
 		self.edge_index = edge_index
 		return self.propagate(x=x, posx=posx, posa=posa, edge_index=edge_index, size=(posx.shape[0], posa.shape[0]))
 
-	def message(self, x_j: Tensor, posx_j: Tensor, posa_i: Tensor) -> Tensor: # this is switched because the edge_index was switched
+	def message(self, x_j: Tensor, posx_j: Tensor, posa_i: Tensor) -> Tensor:
 		if self.position == 'abs':
 			pos = posx_j
 		elif self.position == 'rel':
@@ -79,6 +79,7 @@ class MergeGNN(MessagePassing):
 		edge_index = self.sort_edge_index(edge_index)
 		self.edge_index = edge_index
 		self.pos = pos
+		self.x = x
 		self.set_decoder_preds(x, edge_index)
 		return self.propagate(x=x, edge_index=edge_index, pos=pos, idx=torch.arange(pos.shape[0]).unsqueeze(1), size=(x.shape[0], x.shape[0]))
 
@@ -156,8 +157,8 @@ class MergeGNN(MessagePassing):
 		self.values["x_pred"].append(decoded)
 		self.values["batch_pred"].append(decoded_batch)
 
-	def message(self, x_i: Tensor, pos_i: Tensor, pos_j: Tensor, idx_i: Tensor, idx_j: Tensor) -> Tensor:  # pos_j: edge_index[0,:], pos_i: edge_index[1,:]
-		decoded, decoded_batch = self.input_decoder(x_i) # = self.input_decoder(x[edge_index[1,:],:])
+	def message(self, x_j: Tensor, pos_i: Tensor, pos_j: Tensor, idx_i: Tensor, idx_j: Tensor) -> Tensor:  # pos_j: edge_index[0,:], pos_i: edge_index[1,:]
+		decoded, decoded_batch = self.input_decoder(x_j) # = self.input_decoder(x[edge_index[1,:],:])
 		if self.position == 'rel':
 			ope = scatter(src=torch.ones(decoded_batch.shape[0]), index=decoded_batch, dim_size=idx_i.shape[0]).long()
 			pos_i_exp = pos_i.repeat_interleave(ope, dim=0)
@@ -166,7 +167,7 @@ class MergeGNN(MessagePassing):
 		return (decoded, decoded_batch)
 
 	def update_rel_pos(self, x: Tensor, pos_i: Tensor, pos_j: Tensor) -> Tensor:
-		x[:,-self.pos_dim:] = x[:,-self.pos_dim:] + pos_i - pos_j
+		x[:,-self.pos_dim:] = x[:,-self.pos_dim:] + pos_j - pos_i
 		return x
 
 	def filter_duplicates(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None, pos_only: bool = False):
@@ -196,14 +197,15 @@ class MergeGNN(MessagePassing):
 				  ptr: Optional[Tensor] = None,
 				  dim_size: Optional[int] = None) -> Tensor:
 		x = inputs[0]
-		obj_index = index[inputs[1]] # index: the agent of each edge, inputs[1]: the edge of each object.
-		mask = self.filter_duplicates(x, obj_index) #, dim_size=dim_size)
+		# TODO: why is edge_index[0,:] the agent_idx instead of edge_index[1,:]?
+		agent_idx = index[inputs[1]] # index: the agent of each edge, inputs[1]: the edge of each object.
+		mask = self.filter_duplicates(x, agent_idx)
 		x = x[mask,:]
-		obj_index = obj_index[mask]
-		output = self.merge_encoder(x, batch=obj_index, n_batches=dim_size)
-		self.values["n_output"].append(scatter(src=torch.ones(obj_index.shape[0]), index=obj_index, dim_size=dim_size, reduce='sum').long())
+		agent_idx = agent_idx[mask]
+		output = self.merge_encoder(x, batch=agent_idx, n_batches=dim_size)
+		self.values["n_output"].append(scatter(src=torch.ones(agent_idx.shape[0]), index=agent_idx, dim_size=dim_size, reduce='sum').long())
 		self.values["x_output"].append(x)
-		self.values["batch_output"].append(obj_index)
+		self.values["batch_output"].append(agent_idx)
 		self.values["perm_output"].append(self.merge_encoder.get_x_perm())
 		if len(self.values["obj_idx_per_edge"]) > 0:
 			obj_idx_per_edge = self.values["obj_idx_per_edge"][-1]

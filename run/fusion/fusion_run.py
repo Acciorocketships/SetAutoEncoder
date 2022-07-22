@@ -12,7 +12,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"refactor": {"log": True},
+		"no-reindex": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,
@@ -20,7 +20,7 @@ def experiments():
 		"batch_size": 64,
 		"epochs": 100000,
 		"gnn_nlayers": 2,
-		"position": "rel",
+		"position": "abs",
 		"obs_range": 0.3,
 		"mean_objects": 10,
 	}
