@@ -86,28 +86,29 @@ class FusionModel(nn.Module):
 
 
 	def loss(self, data):
-		# Get Data
-		obj_per_agent_obs = batch_to_set_lens(
-			data[('agent', 'observe', 'object')].edge_index[0, :],
-			batch_size=data['agent'].pos.shape[0],
-		)
-
 		# Merge Layers Loss
-		merge_size_loss = self.merge_size_loss(n_true=obj_per_agent_obs)
+		merge_size_loss = self.merge_size_loss()
 		merge_element_loss, merge_corr = self.merge_corr_loss(return_corr=True)
+		decoder_size_loss = self.decoder_size_loss()
+		decoder_element_loss, decoder_corr = self.decoder_corr_loss(return_corr=True)
 
-		loss = merge_size_loss + 50 * merge_element_loss
+		decoder_loss = 1 / self.gnn_nlayers * decoder_size_loss + 50 / self.gnn_nlayers * decoder_element_loss
+		merge_loss = merge_size_loss + 50 * merge_element_loss
+		loss = merge_loss + decoder_loss
 
 		return {
 			"loss": loss,
 			"merge_element_loss": merge_element_loss / self.gnn_nlayers,
 			"merge_size_loss": merge_size_loss,
 			"merge_corr": merge_corr,
+			"decoder_size_loss": decoder_size_loss,
+			"decoder_element_loss": decoder_element_loss,
+			"decoder_corr": decoder_corr,
 			**self.stats(data),
 		}
 
 
-	def merge_size_loss(self, n_true):
+	def merge_size_loss(self):
 		layer_size_losses = []
 		n_trues = self.merge_gnn.get_values("n_output")
 		n_pred_logits = self.merge_gnn.get_values("n_pred_logits")
@@ -153,6 +154,24 @@ class FusionModel(nn.Module):
 			return loss, corr
 		else:
 			return loss
+
+	def decoder_size_loss(self):
+		return self.size_loss(
+			n_true=self.merge_gnn.get_values("n_output")[-1],
+			n_pred_logits=self.decoder.get_n_pred_logits(),
+			max_n=self.decoder.max_n
+		)
+
+	def decoder_corr_loss(self, return_corr=False):
+		return self.corr_loss(
+			n_true=self.merge_gnn.get_values("n_output")[-1],
+			n_pred=self.decoder.get_n_pred(),
+			x_true=self.merge_gnn.get_values("x_output")[-1],
+			x_pred=self.decoded,
+			batch_pred=self.batch,
+			perm=self.merge_gnn.get_values("perm_output")[-1],
+			return_corr=return_corr,
+		)
 
 
 	def size_loss(self, n_true, n_pred_logits, max_n):

@@ -4,7 +4,7 @@ import torch
 from torch_geometric.nn import MessagePassing
 from typing import Optional
 from sae import EncoderNew, DecoderNew
-# from sae import batch_to_set_lens
+from sae.mlp import build_mlp
 
 
 class EncodeGNN(MessagePassing):
@@ -50,9 +50,9 @@ class MergeGNN(MessagePassing):
 		self.pos_dim = 2 if position is not None else 0
 		self.orig_dim = orig_dim
 		self.position = position
-		self.filter_dist_thres = 1e-6
 		self.input_decoder = DecoderNew(hidden_dim=self.input_dim, dim=self.orig_dim, max_n=max_obj)
 		self.merge_encoder = EncoderNew(dim=self.orig_dim, hidden_dim=self.output_dim, max_n=max_obj)
+		self.filter = build_mlp(input_dim=2*orig_dim, output_dim=2, nlayers=3)
 		self.reset_values()
 
 	def reset_values(self):
@@ -84,7 +84,7 @@ class MergeGNN(MessagePassing):
 		return self.propagate(x=x, edge_index=edge_index, pos=pos, idx=torch.arange(pos.shape[0]).unsqueeze(1), size=(x.shape[0], x.shape[0]))
 
 	def sort_edge_index(self, edge_index): # TODO: move into agents_to_edges, check if it still works
-		perm = torch.argsort(edge_index[1, :], stable=True)
+		perm = torch.argsort(edge_index[0, :], stable=True)
 		return edge_index[:,perm]
 
 	def forward_true(self, x: Tensor, agent_idx: Tensor, obj_idx: Tensor, edge_index: Tensor, pos: Tensor):
@@ -94,11 +94,11 @@ class MergeGNN(MessagePassing):
 		agente_idx = edge_data["agent_idx"]
 		srce_idx = edge_data["agent_src_idx"]
 		obje_idx = edge_data["obj_idx"]
-		pos_i = pos[srce_idx, :]
-		pos_j = pos[agente_idx, :]
+		pos_j = pos[srce_idx, :]
+		pos_i = pos[agente_idx, :]
 		if self.position == 'rel':
 			xe = self.update_rel_pos(xe, pos_i, pos_j)
-		mask = self.filter_duplicates(xe, agente_idx)
+		mask = self.filter_duplicates_dist(xe, agente_idx)
 		x_new = xe[mask,:]
 		agent_idx_new = agente_idx[mask]
 		obj_idx_new = obje_idx[mask]
@@ -112,6 +112,7 @@ class MergeGNN(MessagePassing):
 		perm = torch.argsort(agent_idx, stable=True)
 		x = x[perm,:]
 		agent_idx = agent_idx[perm]
+		obj_idx = obj_idx[perm] if (obj_idx is not None) else None
 		n_agent_idx = torch.max(agent_idx, dim=0)[0] + 1 if agent_idx.shape[0] > 0 else 0
 		n_edge_index = torch.max(edge_index[0,:], dim=0)[0] + 1
 		n_agents = max(n_edge_index, n_agent_idx)
@@ -120,13 +121,12 @@ class MergeGNN(MessagePassing):
 		epa_cum = torch.cat([torch.zeros(1), torch.cumsum(epa, dim=0)], dim=0).long()
 		opa_cum = torch.cat([torch.zeros(1), torch.cumsum(opa, dim=0)], dim=0).long()
 		xn_idx_edge = torch.cat([torch.arange(epa[i]).repeat_interleave(opa[i]) + epa_cum[i] for i in range(epa.shape[0])], dim=0).long()
-		agent_idx_new = edge_index[0, xn_idx_edge]
-		agent_src_idx_new = edge_index[1, xn_idx_edge]
+		agent_idx_new = edge_index[1, xn_idx_edge]
+		agent_src_idx_new = edge_index[0, xn_idx_edge]
 		idx = torch.cat([torch.arange(opa[i]).repeat(epa[i]) + opa_cum[i] for i in range(epa.shape[0])], dim=0).long()
 		x_new = x[idx]
 		obj_idx_new = None
 		if obj_idx is not None:
-			obj_idx = obj_idx[perm]
 			obj_idx_new = obj_idx[idx]
 		return {
 			"x": x_new,
@@ -170,11 +170,8 @@ class MergeGNN(MessagePassing):
 		x[:,-self.pos_dim:] = x[:,-self.pos_dim:] + pos_j - pos_i
 		return x
 
-	def filter_duplicates(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None, pos_only: bool = False):
-		if pos_only:
-			feat = x[:, -self.pos_dim:]
-		else:
-			feat = x
+	def filter_duplicates_dist(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None):
+		self.filter_dist_thres = 1e-6
 		mask = torch.zeros(x.shape[0], dtype=bool)
 		if dim_size is None:
 			if len(index) > 0:
@@ -182,7 +179,7 @@ class MergeGNN(MessagePassing):
 			else:
 				dim_size = 0
 		for i in range(dim_size):
-			agent_obj_feat = feat[index == i,:]
+			agent_obj_feat = x[index == i,:]
 			obj_pairwise_disp = (agent_obj_feat.unsqueeze(0) - agent_obj_feat.unsqueeze(1)).norm(dim=-1)
 			duplicates = torch.triu(obj_pairwise_disp < self.filter_dist_thres, diagonal=1)
 			maski = duplicates.sum(dim=0) == 0
@@ -192,14 +189,18 @@ class MergeGNN(MessagePassing):
 			mask[index == i] = maski
 		return mask
 
+	def filter_duplicates(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None):
+		# torch.cartesian_prod (agent_idx, obj_idx)
+		# sort ground truth (agent_idx, obj_idx)
+		return "ooop"
+
 
 	def aggregate(self, inputs: Tensor, index: Tensor,
 				  ptr: Optional[Tensor] = None,
 				  dim_size: Optional[int] = None) -> Tensor:
 		x = inputs[0]
-		# TODO: why is edge_index[0,:] the agent_idx instead of edge_index[1,:]?
 		agent_idx = index[inputs[1]] # index: the agent of each edge, inputs[1]: the edge of each object.
-		mask = self.filter_duplicates(x, agent_idx)
+		mask = self.filter_duplicates_dist(x, agent_idx)
 		x = x[mask,:]
 		agent_idx = agent_idx[mask]
 		output = self.merge_encoder(x, batch=agent_idx, n_batches=dim_size)
@@ -211,4 +212,5 @@ class MergeGNN(MessagePassing):
 			obj_idx_per_edge = self.values["obj_idx_per_edge"][-1]
 			obj_idx = obj_idx_per_edge[mask]
 			self.values["obj_idx"].append(obj_idx)
+			breakpoint()
 		return output
