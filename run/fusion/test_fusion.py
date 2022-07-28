@@ -3,15 +3,10 @@ from fusion_dataset import ObsEnv
 from fusion_model import FusionModel
 from fusion_gnn import MergeGNN, EncodeGNN
 import torch
-from torch_geometric.data import HeteroData, Batch, Data
+from torch_geometric.data import HeteroData, Batch
 from torch_scatter import scatter
-from sae import batch_to_set_lens
 
 class TestFusion(unittest.TestCase):
-    # test agent to edge works
-    # test filter works
-    # test communication works
-    # test output is full map
 
     @classmethod
     def setUpClass(cls):
@@ -96,30 +91,28 @@ class TestFusion(unittest.TestCase):
         return data
 
     def error3_data(self):
-        agent_edge_index = torch.tensor([[0, 1, 2, 3, 1, 3, 0, 1, 2, 0, 3, 0, 1, 2, 3, 2, 4, 5, 6, 5, 6, 7, 6, 4,
-         4, 5, 4, 7, 7, 6],
-        [0, 1, 2, 3, 3, 1, 1, 0, 0, 2, 0, 3, 2, 1, 2, 3, 4, 5, 5, 6, 6, 7, 4, 6,
-         5, 4, 7, 4, 6, 7]])
+        agent_edge_index = torch.tensor([[0, 1, 2, 3, 1, 3, 0, 1, 2, 0, 3, 0, 1, 2, 3, 2, 4, 5, 6, 5, 6, 7, 6, 4, 4, 5, 4, 7, 7, 6],
+                                         [0, 1, 2, 3, 3, 1, 1, 0, 0, 2, 0, 3, 2, 1, 2, 3, 4, 5, 5, 6, 6, 7, 4, 6, 5, 4, 7, 4, 6, 7]])
         obj_agent_edge_index = torch.tensor([[0, 0, 1, 3, 5, 6, 6],
-        [0, 1, 2, 2, 4, 3, 4]])
+                                             [0, 1, 2, 2, 4, 3, 4]])
         obj_x = torch.tensor([[0.3700, 0.2575, 0.5962, 0.9407],
-        [0.8707, 0.5006, 0.4984, 0.4360],
-        [0.7645, 0.9476, 0.7854, 0.4221],
-        [0.6424, 0.8400, 0.1091, 0.0718],
-        [0.4323, 0.1819, 0.9370, 0.7831]])
+                              [0.8707, 0.5006, 0.4984, 0.4360],
+                              [0.7645, 0.9476, 0.7854, 0.4221],
+                              [0.6424, 0.8400, 0.1091, 0.0718],
+                              [0.4323, 0.1819, 0.9370, 0.7831]])
         obj_pos = torch.tensor([[0.3747, 0.2709],
-        [0.0216, 0.3048],
-        [0.8115, 0.3011],
-        [0.1534, 0.7798],
-        [0.5347, 0.8404]])
+                                [0.0216, 0.3048],
+                                [0.8115, 0.3011],
+                                [0.1534, 0.7798],
+                                [0.5347, 0.8404]])
         agent_pos = torch.tensor([[0.2030, 0.3133],
-        [0.7525, 0.5592],
-        [0.1331, 0.9551],
-        [0.9163, 0.1566],
-        [0.6458, 0.5032],
-        [0.6046, 0.8275],
-        [0.3893, 0.6628],
-        [0.8052, 0.2069]])
+                                  [0.7525, 0.5592],
+                                  [0.1331, 0.9551],
+                                  [0.9163, 0.1566],
+                                  [0.6458, 0.5032],
+                                  [0.6046, 0.8275],
+                                  [0.3893, 0.6628],
+                                  [0.8052, 0.2069]])
         data = HeteroData({
             "agent": {
                 "pos": agent_pos,
@@ -164,17 +157,17 @@ class TestFusion(unittest.TestCase):
 
         import types
         def message(gnn_self, x_j, pos_i, pos_j, idx_i, idx_j):
-            gnn_self.x_edge, gnn_self.x_idx_edge = gnn_self.input_decoder(x_j) # i is the src, j is self
+            gnn_self.x_edge, gnn_self.agent_idx_edge = gnn_self.input_decoder(x_j) # i is the src, j is self
 
-            gnn_self.src_idx = gnn_self.edge_index[0, gnn_self.x_idx_edge]
-            gnn_self.agent_idx = gnn_self.edge_index[1, gnn_self.x_idx_edge]
-            ope = scatter(src=torch.ones(gnn_self.x_idx_edge.shape[0]), index=gnn_self.x_idx_edge,dim_size=idx_i.shape[0]).long()
+            gnn_self.src_idx = gnn_self.edge_index[0, gnn_self.agent_idx_edge]
+            gnn_self.agent_idx = gnn_self.edge_index[1, gnn_self.agent_idx_edge]
+            ope = scatter(src=torch.ones(gnn_self.agent_idx_edge.shape[0]), index=gnn_self.agent_idx_edge,dim_size=idx_i.shape[0]).long()
             src_idx_exp = idx_j.repeat_interleave(ope)
             agent_idx_exp = idx_i.repeat_interleave(ope)
             edge_data = gnn_self.agents_to_edges(gnn_self.values["x_pred"][-1], gnn_self.values["batch_pred"][-1],gnn_self.edge_index,obj_idx=torch.arange(gnn_self.values["x_pred"][-1].shape[0]))
             xe = edge_data["x"]
             ae_idx = edge_data["agent_idx"]
-            srce_idx = edge_data["agent_src_idx"]
+            srce_idx = edge_data["src_idx"]
             pose_j = gnn_self.pos[srce_idx, :]
             pose_i = gnn_self.pos[ae_idx, :]
             self.assertTrue(torch.all(gnn_self.src_idx == srce_idx))
@@ -184,7 +177,7 @@ class TestFusion(unittest.TestCase):
             self.assertTrue(torch.allclose(gnn_self.x_edge, xe))
 
             if gnn_self.position == 'rel':
-                ope = scatter(src=torch.ones(gnn_self.x_idx_edge.shape[0]), index=gnn_self.x_idx_edge,dim_size=idx_i.shape[0]).long()
+                ope = scatter(src=torch.ones(gnn_self.agent_idx_edge.shape[0]), index=gnn_self.agent_idx_edge,dim_size=idx_i.shape[0]).long()
                 pos_i_exp = pos_i.repeat_interleave(ope, dim=0)
                 pos_j_exp = pos_j.repeat_interleave(ope, dim=0)
                 gnn_self.x_edge = gnn_self.update_rel_pos(gnn_self.x_edge, pos_i_exp, pos_j_exp)
@@ -193,8 +186,8 @@ class TestFusion(unittest.TestCase):
 
             # orig_out1, orig_out2 = gnn_self.message_orig(x_i=x_i, pos_i=pos_i, pos_j=pos_j, idx_i=idx_i, idx_j=idx_j)
             # self.assertTrue(torch.allclose(orig_out1, gnn_self.x_edge))
-            # self.assertTrue(torch.all(orig_out2 == gnn_self.x_idx_edge))
-            return gnn_self.x_edge, gnn_self.x_idx_edge
+            # self.assertTrue(torch.all(orig_out2 == gnn_self.agent_idx_edge))
+            return gnn_self.x_edge, gnn_self.agent_idx_edge
 
         # merge_gnn.message_orig = types.MethodType(merge_gnn.message, merge_gnn)
         merge_gnn.message = types.MethodType(message, merge_gnn)
@@ -202,14 +195,14 @@ class TestFusion(unittest.TestCase):
         encoded = encode_gnn(x=obj_x, edge_index=obj_agent_edge_index, posx=obj_pos, posa=agent_pos)
         out = merge_gnn(x=encoded, edge_index=agent_edge_index, pos=agent_pos)
 
-        x_dec, x_idx_dec = merge_gnn.input_decoder(encoded)
+        x_dec, agent_idx_dec = merge_gnn.input_decoder(encoded)
         edge_index = merge_gnn.sort_edge_index(agent_edge_index)
-        edge_data = merge_gnn.agents_to_edges(x=x_dec, agent_idx=x_idx_dec, edge_index=edge_index)
+        edge_data = merge_gnn.agents_to_edges(x=x_dec, agent_idx=agent_idx_dec, edge_index=edge_index)
         x_dec_edge = edge_data["x"]
         agent_idx_dec_edge = edge_data["agent_idx"]
-        src_idx_dec_edge = edge_data["agent_src_idx"]
+        src_idx_dec_edge = edge_data["src_idx"]
 
-        merge_gnn_agent_idx = edge_index[1,merge_gnn.x_idx_edge]
+        merge_gnn_agent_idx = edge_index[1,merge_gnn.agent_idx_edge]
         if merge_gnn.position == "rel":
             x_dec_edge[:,-2:] = x_dec_edge[:,-2:] + agent_pos[src_idx_dec_edge,:] - agent_pos[agent_idx_dec_edge,:]
 
@@ -246,15 +239,15 @@ class TestFusion(unittest.TestCase):
         error2_data = self.error2_data()
         self.run_full_truth(error2_data, position="abs")
         self.run_full_truth(error2_data, position="rel")
+        error3_data = self.error2_data()
+        self.run_full_truth(error3_data, position="abs")
+        self.run_full_truth(error3_data, position="rel")
         random_data = self.random_data()
         self.run_full_truth(random_data, position="abs")
         self.run_full_truth(random_data, position="rel")
 
 
     def test_agent_to_edge(self):
-        random_data = self.random_data()
-        self.run_agent_to_edge(random_data, position="abs")
-        self.run_agent_to_edge(random_data, position="rel")
         error1_data = self.error1_data()
         self.run_agent_to_edge(error1_data, position="abs")
         self.run_agent_to_edge(error1_data, position="rel")
@@ -264,12 +257,15 @@ class TestFusion(unittest.TestCase):
         error3_data = self.error3_data()
         self.run_agent_to_edge(error3_data, position="abs")
         self.run_agent_to_edge(error3_data, position="rel")
+        random_data = self.random_data()
+        self.run_agent_to_edge(random_data, position="abs")
+        self.run_agent_to_edge(random_data, position="rel")
 
 
-def did_element_disappear(x_idx, obj_idx, x_idx_new, obj_idx_new, edge_index):
-    idx_set = {(x_idx_new[i].item(), obj_idx_new[i].item()) for i in range(x_idx_new.shape[0])}
-    for i in range(x_idx.shape[0]):
-        element = (x_idx[i].item(), obj_idx[i].item())
+def did_element_disappear(agent_idx, obj_idx, agent_idx_new, obj_idx_new, edge_index):
+    idx_set = {(agent_idx_new[i].item(), obj_idx_new[i].item()) for i in range(agent_idx_new.shape[0])}
+    for i in range(agent_idx.shape[0]):
+        element = (agent_idx[i].item(), obj_idx[i].item())
         if element not in idx_set:
             print(element)
 

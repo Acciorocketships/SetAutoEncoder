@@ -12,7 +12,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"no-reindex": {"log": True},
+		"vanilla": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,

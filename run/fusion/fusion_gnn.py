@@ -69,7 +69,7 @@ class MergeGNN(MessagePassing):
 			"obj_idx": [],
 			"obj_idx_per_edge": [],
 			"x_per_edge": [],
-			"x_idx_per_edge": [],
+			"agent_idx_per_edge": [],
 		}
 
 	def get_values(self, key):
@@ -92,7 +92,7 @@ class MergeGNN(MessagePassing):
 		edge_data = self.agents_to_edges(x=x, agent_idx=agent_idx, edge_index=edge_index, obj_idx=obj_idx)
 		xe = edge_data["x"]
 		agente_idx = edge_data["agent_idx"]
-		srce_idx = edge_data["agent_src_idx"]
+		srce_idx = edge_data["src_idx"]
 		obje_idx = edge_data["obj_idx"]
 		pos_j = pos[srce_idx, :]
 		pos_i = pos[agente_idx, :]
@@ -106,9 +106,9 @@ class MergeGNN(MessagePassing):
 
 	def agents_to_edges(self, x, agent_idx, edge_index, obj_idx=None):
 		# input: x, data for a variable number of objects for each agent
-		#		 x_idx, the agent associated with each object
+		#		 agent_idx, the agent associated with each object
 		#		 edge_index: the edge index of the graph (edges from edge_index[0,:] to edge_index[1,:])
-		# purpose: duplicate x onto each incoming edge, and change x_idx to point at edges instead of agents
+		# purpose: duplicate x onto each incoming edge, and change agent_idx to point at edges instead of agents
 		perm = torch.argsort(agent_idx, stable=True)
 		x = x[perm,:]
 		agent_idx = agent_idx[perm]
@@ -122,7 +122,7 @@ class MergeGNN(MessagePassing):
 		opa_cum = torch.cat([torch.zeros(1), torch.cumsum(opa, dim=0)], dim=0).long()
 		xn_idx_edge = torch.cat([torch.arange(epa[i]).repeat_interleave(opa[i]) + epa_cum[i] for i in range(epa.shape[0])], dim=0).long()
 		agent_idx_new = edge_index[1, xn_idx_edge]
-		agent_src_idx_new = edge_index[0, xn_idx_edge]
+		src_idx_new = edge_index[0, xn_idx_edge]
 		idx = torch.cat([torch.arange(opa[i]).repeat(epa[i]) + opa_cum[i] for i in range(epa.shape[0])], dim=0).long()
 		x_new = x[idx]
 		obj_idx_new = None
@@ -131,7 +131,7 @@ class MergeGNN(MessagePassing):
 		return {
 			"x": x_new,
 			"agent_idx": agent_idx_new,
-			"agent_src_idx": agent_src_idx_new,
+			"src_idx": src_idx_new,
 			"obj_idx": obj_idx_new,
 		}
 
@@ -151,7 +151,7 @@ class MergeGNN(MessagePassing):
 			edge_data = self.agents_to_edges(x=decoded, agent_idx=decoded_batch, edge_index=edge_index, obj_idx=obj_idx_decoded)
 			self.values["obj_idx_per_edge"].append(edge_data["obj_idx"])
 			self.values["x_per_edge"].append(edge_data["x"])
-			self.values["x_idx_per_edge"].append(edge_data["agent_idx"])
+			self.values["agent_idx_per_edge"].append(edge_data["agent_idx"])
 		self.values["n_pred_logits"].append(self.input_decoder.get_n_pred_logits())
 		self.values["n_pred"].append(self.input_decoder.get_n_pred())
 		self.values["x_pred"].append(decoded)
@@ -171,7 +171,7 @@ class MergeGNN(MessagePassing):
 		return x
 
 	def filter_duplicates_dist(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None):
-		self.filter_dist_thres = 1e-6
+		self.filter_dist_thres = 3e-2
 		mask = torch.zeros(x.shape[0], dtype=bool)
 		if dim_size is None:
 			if len(index) > 0:
@@ -190,10 +190,28 @@ class MergeGNN(MessagePassing):
 		return mask
 
 	def filter_duplicates(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None):
-		# torch.cartesian_prod (agent_idx, obj_idx)
-		# sort ground truth (agent_idx, obj_idx)
-		return "ooop"
-
+		mask = torch.zeros(x.shape[0], dtype=bool)
+		if dim_size is None:
+			if len(index) > 0:
+				dim_size = max(index) + 1
+			else:
+				dim_size = 0
+		for i in range(dim_size):
+			xs = x[index == i, :]
+			xi = xs.unsqueeze(0).expand(xs.shape[0], -1, -1)
+			xj = xs.unsqueeze(1).expand(-1, xs.shape[0], -1)
+			feat_mat = torch.cat([xi, xj], dim=2)
+			feat_mat_flat = feat_mat.reshape(xs.shape[0]**2, 2*xs.shape[1])
+			class_mat_flat = self.filter(feat_mat_flat)
+			class_mat = class_mat_flat.reshape(xs.shape[0], xs.shape[0], 2)
+			class_mat_binary = torch.argmax(class_mat, dim=2)
+			duplicates = torch.triu(class_mat_binary, diagonal=1)
+			maski = duplicates.sum(dim=0) == 0
+			if maski.sum() >= self.merge_encoder.max_n:
+				idxs = torch.where(maski)[0][self.merge_encoder.max_n - 1:]
+				maski[idxs] = False
+			mask[index == i] = maski
+		return mask
 
 	def aggregate(self, inputs: Tensor, index: Tensor,
 				  ptr: Optional[Tensor] = None,
@@ -212,5 +230,4 @@ class MergeGNN(MessagePassing):
 			obj_idx_per_edge = self.values["obj_idx_per_edge"][-1]
 			obj_idx = obj_idx_per_edge[mask]
 			self.values["obj_idx"].append(obj_idx)
-			breakpoint()
 		return output
