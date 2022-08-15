@@ -6,6 +6,7 @@ class Visualiser:
 
 	def __init__(self, visible=False):
 		self.viewer = Viewer(width=800, height=800, visible=visible)
+		self.viewer = Viewer(width=800, height=800, visible=visible)
 		self.viewer.set_bounds(-1., 1., -1., 1.)
 		self.caption = None
 
