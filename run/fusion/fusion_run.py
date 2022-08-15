@@ -12,14 +12,14 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"no-reindex": {"log": True},
+		"vanilla": {"log": False},
 	}
 	default = {
 		"feat_dim": 4,
 		"pos_dim": 2,
 		"batch_size": 64,
-		"epochs": 100000,
-		"gnn_nlayers": 2,
+		"epochs": 1000000,
+		"gnn_nlayers": 3,
 		"position": "abs",
 		"obs_range": 0.3,
 		"mean_objects": 10,

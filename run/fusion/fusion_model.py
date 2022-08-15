@@ -44,7 +44,7 @@ class FusionModel(nn.Module):
 
 
 	def forward(self, data):
-		self.forward_true(data)
+		# self.forward_true(data)
 
 		obj_x = data['object'].x
 		obj_pos = data['object'].pos
@@ -56,6 +56,8 @@ class FusionModel(nn.Module):
 		self.merge_gnn.reset_values()
 
 		self.enc = self.encode_gnn(x=obj_x, edge_index=obj_agent_edge_index, posx=obj_pos, posa=agent_pos)
+
+		breakpoint()
 
 		self.merge_gnn[0].values["obj_idx"].append(obj_agent_edge_index[1, :])
 		self.merge_gnn[0].values["n_output"].append(obj_per_agent_obs)
@@ -86,28 +88,34 @@ class FusionModel(nn.Module):
 
 
 	def loss(self, data):
-		# Get Data
-		obj_per_agent_obs = batch_to_set_lens(
-			data[('agent', 'observe', 'object')].edge_index[0, :],
-			batch_size=data['agent'].pos.shape[0],
-		)
-
 		# Merge Layers Loss
-		merge_size_loss = self.merge_size_loss(n_true=obj_per_agent_obs)
+		merge_size_loss = self.merge_size_loss()
 		merge_element_loss, merge_corr = self.merge_corr_loss(return_corr=True)
+		decoder_size_loss = self.decoder_size_loss()
+		decoder_element_loss, decoder_corr = self.decoder_corr_loss(return_corr=True)
+		# filter_data = self.filter_loss(return_accuracy=True, num_layers=2)
+		filter_loss = 0 # filter_data["loss"]
 
-		loss = merge_size_loss + 50 * merge_element_loss
+		decoder_loss = 0.1 * (decoder_size_loss + 100 * decoder_element_loss)
+		merge_loss = merge_size_loss + 100 * merge_element_loss
+		loss = 1. * merge_loss + 0.3 * filter_loss + 0 * decoder_loss
 
+		# del filter_data["loss"]
 		return {
 			"loss": loss,
 			"merge_element_loss": merge_element_loss / self.gnn_nlayers,
 			"merge_size_loss": merge_size_loss,
 			"merge_corr": merge_corr,
-			**self.stats(data),
+			"decoder_size_loss": decoder_size_loss,
+			"decoder_element_loss": decoder_element_loss,
+			"decoder_corr": decoder_corr,
+			"filter_loss": filter_loss,
+			# **filter_data,
+			# **self.stats(data),
 		}
 
 
-	def merge_size_loss(self, n_true):
+	def merge_size_loss(self):
 		layer_size_losses = []
 		n_trues = self.merge_gnn.get_values("n_output")
 		n_pred_logits = self.merge_gnn.get_values("n_pred_logits")
@@ -118,7 +126,7 @@ class FusionModel(nn.Module):
 		return sum(layer_size_losses)
 
 
-	def merge_corr_loss(self, return_corr=False, layers=None, minperm_layers=None):
+	def merge_corr_loss(self, return_corr=False):
 		layer_losses = []
 		layer_corrs = []
 		n_trues = self.merge_gnn.get_values("n_output")
@@ -128,12 +136,6 @@ class FusionModel(nn.Module):
 		x_preds = self.merge_gnn.get_values("x_pred")
 		batch_preds = self.merge_gnn.get_values("batch_pred")
 		for i in range(self.gnn_nlayers):
-			if layers is not None:
-				if i not in layers:
-					continue
-			if minperm_layers is not None:
-				if i in minperm_layers:
-					perms[i] = None
 			mse = self.corr_loss(
 				n_true=n_trues[i],
 				n_pred=n_preds[i],
@@ -153,6 +155,24 @@ class FusionModel(nn.Module):
 			return loss, corr
 		else:
 			return loss
+
+	def decoder_size_loss(self):
+		return self.size_loss(
+			n_true=self.merge_gnn.get_values("n_output")[-1],
+			n_pred_logits=self.decoder.get_n_pred_logits(),
+			max_n=self.decoder.max_n
+		)
+
+	def decoder_corr_loss(self, return_corr=False):
+		return self.corr_loss(
+			n_true=self.merge_gnn.get_values("n_output")[-1],
+			n_pred=self.decoder.get_n_pred(),
+			x_true=self.merge_gnn.get_values("x_output")[-1],
+			x_pred=self.decoded,
+			batch_pred=self.batch,
+			perm=self.merge_gnn.get_values("perm_output")[-1],
+			return_corr=return_corr,
+		)
 
 
 	def size_loss(self, n_true, n_pred_logits, max_n):
@@ -185,6 +205,75 @@ class FusionModel(nn.Module):
 			return mse, corr
 		else:
 			return mse
+
+
+	def filter_loss(self, return_accuracy=False, num_layers=None):
+		def cross(z):
+			zi = z.unsqueeze(0).expand(z.shape[0], -1, -1)
+			zj = z.unsqueeze(1).expand(-1, z.shape[0], -1)
+			z_mat = torch.cat([zi, zj], dim=-1)
+			z_mat_flat = z_mat.reshape(z.shape[0] ** 2, 2 * z.shape[1])
+			return z_mat_flat
+		losses = []
+		accuracies = []
+		corr_same = []
+		corr_diff = []
+		ratio_pred = []
+		ratio_true = []
+		if num_layers is None:
+			num_layers = self.gnn_nlayers
+		for i in range(num_layers):
+			obj_idx = self.merge_gnn.get_values("obj_idx_per_edge")[i]
+			agent_idx = self.merge_gnn.get_values("agent_idx_per_edge")[i]
+			x = self.merge_gnn.get_values("x_per_edge")[i]
+			num_agents = torch.max(agent_idx)
+			dup_class = []
+			xs_cross = []
+			for agent in range(num_agents):
+				idxs = (agent_idx == agent)
+				xs = x[idxs, :]
+				objs = obj_idx[idxs]
+				xs_cross_i = cross(xs)
+				objs_cross = cross(objs.unsqueeze(-1))
+				nan_mask = ~torch.any(torch.isnan(objs_cross), dim=1)
+				objs_cross = objs_cross[nan_mask]
+				dup_class_i = (objs_cross[:,0] == objs_cross[:,1]).long()
+				xs_cross_i = xs_cross_i[nan_mask]
+				dup_class.append(dup_class_i)
+				xs_cross.append(xs_cross_i)
+			dup_class = torch.cat(dup_class, dim=0)
+			xs_cross = torch.cat(xs_cross, dim=0)
+			pred_class = self.merge_gnn[0].filter(xs_cross)
+			layer_loss = torch.mean(cross_entropy_loss(pred_class, dup_class))
+			accuracy = torch.sum(torch.argmax(pred_class, dim=1) == dup_class) / dup_class.shape[0]
+			xs_same = xs_cross[dup_class.bool(),:]
+			xs_diff = xs_cross[~dup_class.bool(),:]
+			d = xs_same.shape[-1] // 2
+			corr_same_layer = correlation(xs_same[:,:d], xs_same[:,d:])
+			corr_diff_layer = correlation(xs_diff[:, :d], xs_diff[:, d:])
+			losses.append(layer_loss)
+			accuracies.append(accuracy)
+			corr_same.append(corr_same_layer)
+			corr_diff.append(corr_diff_layer)
+			ratio_pred.append(torch.sum(torch.argmax(pred_class, dim=1)) / dup_class.shape[0])
+			ratio_true.append(torch.sum(dup_class) / dup_class.shape[0])
+		loss = sum(losses)
+		acc = sum(accuracies) / len(accuracies)
+		corr_same = sum(corr_same) / len(corr_same)
+		corr_diff = sum(corr_diff) / len(corr_diff)
+		ratio_pred = sum(ratio_pred) / len(ratio_pred)
+		ratio_true = sum(ratio_true) / len(ratio_true)
+		if return_accuracy:
+			return {
+				"loss": loss,
+				"filter_acc": acc,
+				"corr_same": corr_same,
+				"corr_diff": corr_diff,
+				"ratio_pred": ratio_pred,
+				"ratio_true": ratio_true,
+			}
+		else:
+			return loss
 
 
 	def stats(self, data):
@@ -230,55 +319,3 @@ class FusionModel(nn.Module):
 			"size_accuracy": size_accuracy,
 			"corr": corr,
 		}
-
-
-## Old Loss
-
-# def loss(self, data):
-# 	# Get Data
-# 	obj_per_agent_obs = batch_to_set_lens(
-# 		data[('agent', 'observe', 'object')].edge_index[0, :],
-# 		batch_size=data['agent'].pos.shape[0],
-# 	)
-#
-# 	# Merge Layers Loss
-# 	merge_size_loss = self.merge_size_loss(n_true=obj_per_agent_obs)
-# 	merge_element_loss, merge_corr = self.merge_corr_loss(
-# 		n_true=obj_per_agent_obs,
-# 		x_true=self.encode_gnn.input,
-# 		perm=self.encode_gnn.x_perm,
-# 		return_corr=True,
-# 		layers=[0],
-# 	)
-#
-# 	# # Decoder Layer Loss
-# 	# decoder_size_loss = self.size_loss(
-# 	# 	n_true=self.merge_gnn.get_values("n_output")[-1],
-# 	# 	n_pred_logits=self.decoder.get_n_pred_logits(),
-# 	# 	max_n=self.decoder.max_n
-# 	# )
-# 	# decoder_element_loss, decoder_corr = self.corr_loss(
-# 	# 	n_true=self.merge_gnn.get_values("n_output")[-1],
-# 	# 	n_pred=self.decoder.get_n_pred(),
-# 	# 	x_true=self.merge_gnn.get_values("x_output")[-1],
-# 	# 	x_pred=self.decoded,
-# 	# 	batch_pred=self.batch,
-# 	# 	perm=self.merge_gnn.get_values("perm_output")[-1],
-# 	# 	return_corr=True,
-# 	# )
-# 	decoder_size_loss = 0
-# 	decoder_element_loss = 0
-# 	decoder_corr = 0
-#
-# 	loss = merge_size_loss + 50 * merge_element_loss + decoder_size_loss + 10 * decoder_element_loss
-#
-# 	return {
-# 		"loss": loss,
-# 		"merge_element_loss": merge_element_loss / self.gnn_nlayers,
-# 		"merge_size_loss": merge_size_loss,
-# 		"decoder_element_loss": decoder_element_loss,
-# 		"decoder_size_loss": decoder_size_loss,
-# 		"merge_corr": merge_corr,
-# 		"decoder_corr": decoder_corr,
-# 		**self.stats(data),
-# 	}

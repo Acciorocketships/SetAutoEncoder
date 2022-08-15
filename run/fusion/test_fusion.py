@@ -121,19 +121,21 @@ class TestFusion(unittest.TestCase):
 
         import types
         def message(gnn_self, x_j, pos_i, pos_j, idx_i, idx_j):
-            gnn_self.x_edge, gnn_self.x_idx_edge = gnn_self.input_decoder(x_j) # i is the src, j is self
+            gnn_self.x_edge, gnn_self.x_idx_edge = gnn_self.input_decoder(x_j) # j is the src, i is self
 
-            gnn_self.src_idx = gnn_self.edge_index[1, gnn_self.x_idx_edge]  # = idx_i.repeat_interleave(objs_per_agent)
-            gnn_self.agent_idx = gnn_self.edge_index[0, gnn_self.x_idx_edge]  # = idx_j.repeat_interleave(objs_per_agent)
+            gnn_self.src_idx = gnn_self.edge_index[0, gnn_self.x_idx_edge]  # = idx_j.repeat_interleave(objs_per_agent)
+            gnn_self.agent_idx = gnn_self.edge_index[1, gnn_self.x_idx_edge]  # = idx_i.repeat_interleave(objs_per_agent)
             ope = scatter(src=torch.ones(gnn_self.x_idx_edge.shape[0]), index=gnn_self.x_idx_edge,dim_size=idx_i.shape[0]).long()
-            src_idx_exp = idx_i.repeat_interleave(ope)
-            agent_idx_exp = idx_j.repeat_interleave(ope)
+            src_idx_exp = idx_j.repeat_interleave(ope)
+            agent_idx_exp = idx_i.repeat_interleave(ope)
             edge_data = gnn_self.agents_to_edges(gnn_self.values["x_pred"][-1], gnn_self.values["batch_pred"][-1],gnn_self.edge_index,obj_idx=torch.arange(gnn_self.values["x_pred"][-1].shape[0]))
             xe = edge_data["x"]
             ae_idx = edge_data["agent_idx"]
-            srce_idx = edge_data["agent_src_idx"]
+            srce_idx = edge_data["src_idx"]
+            obje_idx = edge_data["obj_idx"]
             pose_i = gnn_self.pos[srce_idx, :]
             pose_j = gnn_self.pos[ae_idx, :]
+            breakpoint()
             self.assertTrue(torch.all(gnn_self.src_idx == srce_idx))
             self.assertTrue(torch.all(src_idx_exp == srce_idx))
             self.assertTrue(torch.all(gnn_self.agent_idx == ae_idx))
@@ -164,7 +166,7 @@ class TestFusion(unittest.TestCase):
         edge_data = merge_gnn.agents_to_edges(x=x_dec, agent_idx=x_idx_dec, edge_index=edge_index)
         x_dec_edge = edge_data["x"]
         agent_idx_dec_edge = edge_data["agent_idx"]
-        src_idx_dec_edge = edge_data["agent_src_idx"]
+        src_idx_dec_edge = edge_data["src_idx"]
 
         merge_gnn_agent_idx = edge_index[0,merge_gnn.x_idx_edge]
         if merge_gnn.position == "rel":
@@ -209,15 +211,15 @@ class TestFusion(unittest.TestCase):
 
 
     def test_agent_to_edge(self):
+        error1_data = self.error1_data()
+        self.run_agent_to_edge(error1_data, position="abs")
+        self.run_agent_to_edge(error1_data, position="rel")
+        error2_data = self.error2_data()
+        self.run_agent_to_edge(error2_data, position="abs")
+        self.run_agent_to_edge(error2_data, position="rel")
         random_data = self.random_data()
         self.run_agent_to_edge(random_data, position="abs")
         self.run_agent_to_edge(random_data, position="rel")
-        error1_data = self.random_data()
-        self.run_agent_to_edge(error1_data, position="abs")
-        self.run_agent_to_edge(error1_data, position="rel")
-        error2_data = self.random_data()
-        self.run_agent_to_edge(error2_data, position="abs")
-        self.run_agent_to_edge(error2_data, position="rel")
 
 
 def did_element_disappear(x_idx, obj_idx, x_idx_new, obj_idx_new, edge_index):
