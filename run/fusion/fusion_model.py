@@ -57,11 +57,11 @@ class FusionModel(nn.Module):
 
 		self.enc = self.encode_gnn(x=obj_x, edge_index=obj_agent_edge_index, posx=obj_pos, posa=agent_pos)
 
-		self.merge_gnn[0].values["obj_idx"].append(obj_agent_edge_index[1, :])
+		self.merge_gnn[0].values["perm_output"].append(self.encode_gnn.x_perm)
+		self.merge_gnn[0].values["batch_output"].append(obj_agent_edge_index[0, self.encode_gnn.x_perm])
+		self.merge_gnn[0].values["obj_idx"].append(obj_agent_edge_index[1, self.encode_gnn.x_perm])
 		self.merge_gnn[0].values["n_output"].append(obj_per_agent_obs)
 		self.merge_gnn[0].values["x_output"].append(self.encode_gnn.input)
-		self.merge_gnn[0].values["batch_output"].append(obj_agent_edge_index[0, :])
-		self.merge_gnn[0].values["perm_output"].append(self.encode_gnn.x_perm)
 
 		self.merged = self.merge_gnn(x=self.enc, edge_index=agent_edge_index, pos=agent_pos)
 

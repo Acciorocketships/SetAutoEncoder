@@ -52,7 +52,7 @@ class MergeGNN(MessagePassing):
 		self.position = position
 		self.input_decoder = DecoderNew(hidden_dim=self.input_dim, dim=self.orig_dim, max_n=max_obj)
 		self.merge_encoder = EncoderNew(dim=self.orig_dim, hidden_dim=self.output_dim, max_n=max_obj)
-		self.filter = FilterModel(input_dim=self.orig_dim, hidden_dim=self.orig_dim)
+		self.filter = FilterModel(input_dim=self.orig_dim, hidden_dim=self.orig_dim//2)
 		self.reset_values()
 
 	def reset_values(self):
@@ -151,7 +151,7 @@ class MergeGNN(MessagePassing):
 			edge_data = self.agents_to_edges(x=decoded, agent_idx=decoded_batch, edge_index=edge_index, obj_idx=obj_idx_decoded)
 			self.values["obj_idx_per_edge"].append(edge_data["obj_idx"])
 			self.values["x_per_edge"].append(edge_data["x"])
-			self.values["x_idx_per_edge"].append(edge_data["agent_idx"])
+			self.values["agent_idx_per_edge"].append(edge_data["agent_idx"])
 		self.values["n_pred_logits"].append(self.input_decoder.get_n_pred_logits())
 		self.values["n_pred"].append(self.input_decoder.get_n_pred())
 		self.values["x_pred"].append(decoded)

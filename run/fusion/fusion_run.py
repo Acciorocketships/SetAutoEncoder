@@ -12,7 +12,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"vanilla": {"log": False},
+		"vanilla": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,
