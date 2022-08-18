@@ -52,7 +52,7 @@ class MergeGNN(MessagePassing):
 		self.position = position
 		self.input_decoder = DecoderNew(hidden_dim=self.input_dim, dim=self.orig_dim, max_n=max_obj)
 		self.merge_encoder = EncoderNew(dim=self.orig_dim, hidden_dim=self.output_dim, max_n=max_obj)
-		self.filter = FilterModel(input_dim=self.orig_dim, hidden_dim=self.orig_dim//2)
+		self.filter = FilterModel(input_dim=self.orig_dim, hidden_dim=self.orig_dim)
 		self.reset_values()
 
 	def reset_values(self):

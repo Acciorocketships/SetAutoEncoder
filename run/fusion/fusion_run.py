@@ -19,7 +19,7 @@ def experiments():
 		"pos_dim": 2,
 		"batch_size": 64,
 		"epochs": 1000000,
-		"gnn_nlayers": 3,
+		"gnn_nlayers": 2,
 		"position": "abs",
 		"obs_range": 0.3,
 		"mean_objects": 10,
