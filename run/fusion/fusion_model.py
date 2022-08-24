@@ -36,8 +36,8 @@ class FusionModel(nn.Module):
 		)
 		for i in range(self.gnn_nlayers):
 			layers.append(merge_gnn_layer)
-			signatures.append("x, edge_index, pos -> x")
-		gnn = Sequential("x, edge_index, pos", zip(layers, signatures))
+			signatures.append("x, edge_index, *args, **kwargs -> x")
+		gnn = Sequential("x, edge_index, *args, **kwargs", zip(layers, signatures))
 		gnn.reset_values = gnn[0].reset_values
 		gnn.get_values = gnn[0].get_values
 		return gnn

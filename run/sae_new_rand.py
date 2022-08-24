@@ -8,36 +8,47 @@ import wandb
 from torch_geometric.data import Data, Batch
 
 torch.set_printoptions(precision=2, sci_mode=False)
+model_path_base="params/sae_new_rand-{name}.pt"
+optim_path_base = "params/optim_new_rand-{name}.pt"
+
 project = "sae-rand"
 
 def experiments():
 	trials = {
-		"encoder=new": {},
+		"new": {"log": False},
 	}
 	default = {
-		"dim": 8,
-		"hidden_dim": 32,
-		"max_n": 8,
-		"epochs": 50000,
+		"dim": 4,
+		"hidden_dim": 8,
+		"max_n": 16,
+		"epochs": 100000,
+		"load": False,
+		"log": True,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()
 		config.update(cfg)
 		config["name"] = name
+		config["model_path"] = model_path_base.format(name=name)
+		config["optim_path"] = optim_path_base.format(name=name)
 		run(**config)
 
 
 def run(
-			dim = 8,
-			hidden_dim = 64,
-			max_n = 6,
-			epochs = 100000,
-			batch_size = 16,
-			name = None,
-			encoder = 'new',
-			decoder = 'new',
-			**kwargs,
-		):
+		dim = 8,
+		hidden_dim = 64,
+		max_n = 6,
+		epochs = 100000,
+		batch_size = 16,
+		encoder = 'new',
+		decoder = 'new',
+		model_path = model_path_base.format(name="base"),
+		optim_path = optim_path_base.format(name="base"),
+		name = None,
+		load = False,
+		log = True,
+		**kwargs,
+):
 
 	autoencoder = AutoEncoder(dim=dim, hidden_dim=hidden_dim, max_n=max_n, data_batch=True, **kwargs)
 	if encoder == 'inner':
@@ -48,14 +59,24 @@ def run(
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
 
-	wandb.init(
-			entity = "prorok-lab",
-			project = project,
-			name = name,
-			config = config,
-		)
+	if log:
+		wandb.init(
+				entity = "prorok-lab",
+				project = project,
+				group = name,
+				config = config,
+			)
 
 	optim = Adam(autoencoder.parameters())
+
+	if load:
+		try:
+			model_state_dict = torch.load(model_path)
+			autoencoder.load_state_dict(model_state_dict)
+			optim_state_dict = torch.load(optim_path)
+			optim.load_state_dict(optim_state_dict)
+		except Exception as e:
+			print(e)
 
 	for t in range(epochs):
 
@@ -79,12 +100,13 @@ def run(
 
 		corr = correlation(x[tgt_idx], xr[pred_idx])
 
-		wandb.log({
-					"loss": mse_loss,
-					"crossentropy_loss": crossentropy_loss,
-					"total_loss": loss,
-					"corr": corr,
-				})
+		if log:
+			wandb.log({
+						"loss": mse_loss,
+						"crossentropy_loss": crossentropy_loss,
+						"total_loss": loss,
+						"corr": corr,
+					})
 
 		loss.backward()
 		optim.step()

@@ -10,18 +10,19 @@ torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="params/sae_inner_rand-{name}.pt"
 optim_path_base = "params/optim_inner_rand-{name}.pt"
 
+project = "sae-rand"
+
 def experiments():
 	trials = {
-		"inner/vanilla": {},
-		# "inner/layernorm": {"layernorm": True},
-		# "inner/hidden-dim-48": {"hidden_dim": 48},
+		"inner": {},
 	}
 	default = {
-		"dim": 8,
-		"hidden_dim": 64,
-		"max_n": 6,
-		"epochs": 500000,
+		"dim": 4,
+		"hidden_dim": 8,
+		"max_n": 16,
+		"epochs": 100000,
 		"load": False,
+		"log": True,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()
@@ -42,6 +43,7 @@ def run(
 			optim_path = optim_path_base.format(name="base"),
 			name = None,
 			load = False,
+			log = True,
 			**kwargs,
 		):
 
@@ -50,11 +52,12 @@ def run(
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
 
-	wandb.init(
-			entity = "prorok-lab",
-			project = "sae",
-			name = name,
-			config = config,
+	if log:
+		wandb.init(
+			entity="prorok-lab",
+			project=project,
+			group=name,
+			config=config,
 		)
 
 	optim = Adam(autoencoder.parameters())
@@ -90,7 +93,8 @@ def run(
 
 		corr = correlation(x[tgt_idx], xr[pred_idx])
 
-		wandb.log({
+		if log:
+			wandb.log({
 					"loss": mse_loss,
 					"crossentropy_loss": crossentropy_loss,
 					"total_loss": loss,

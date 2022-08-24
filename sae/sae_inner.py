@@ -1,9 +1,9 @@
 import torch
-import math
-from torch import nn, Tensor
+from torch import nn
 from torch_scatter import scatter
 from torch_geometric.data import Data, Batch
 from sae.mlp import build_mlp
+from sae.positional import PositionalEncoding
 
 
 class AutoEncoder(nn.Module):
@@ -23,9 +23,7 @@ class AutoEncoder(nn.Module):
 			"n_pred_logits": self.decoder.get_n_pred_logits(),
 			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
-			# input to x permutation
 			"x_perm_idx": self.encoder.get_x_perm(),
-			"x_unperm_idx": self.encoder.get_x_unperm()
 		}
 
 
@@ -45,12 +43,6 @@ class Encoder(nn.Module):
 		self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
 		self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=self.layernorm)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
-
-	def get_x_perm(self):
-		return self.xs_idx
-
-	def get_x_unperm(self):
-		return self.xs_idx_rev
 
 	def sort(self, x):
 		mag = self.rank(x).reshape(-1)
@@ -93,10 +85,24 @@ class Encoder(nn.Module):
 		z = self.enc_phi(y3) # batch_size x hidden_dim
 		return z
 
+	def get_x_perm(self):
+		'Returns: the permutation applied to the inputs (shape: ninputs)'
+		return self.xs_idx
+
+	def get_z(self):
+		'Returns: the latent state (shape: batch x hidden_dim)'
+		return self.z
+
+	def get_batch(self):
+		'Returns: the batch idxs of the inputs (shape: ninputs)'
+		return self.batch
+
 	def get_x(self):
+		'Returns: the sorted inputs, x[x_perm] (shape: ninputs x d)'
 		return self.xs
 
 	def get_n(self):
+		'Returns: the number of elements per batch (shape: batch)'
 		return self.n
 
 
@@ -133,47 +139,21 @@ class Decoder(nn.Module):
 		batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
 		return x, batch
 
+	def get_batch_pred(self):
+		'Returns: the batch idxs of the outputs x (shape: noutputs)'
+		return self.batch
+
+	def get_x_pred(self):
+		'Returns: the outputs x (shape: noutputs x d)'
+		return self.x
+
 	def get_n_pred_logits(self):
-		return self.n_pred
+		'Returns: the class logits for each possible n, up to max_n (shape: batch x max_n)'
+		return self.n_pred_logits
 
 	def get_n_pred(self):
-		return self.n
-
-
-class PositionalEncoding(nn.Module):
-
-	def __init__(self, dim: int, mode: str = 'onehot'):
-		super().__init__()
-		self.dim = dim
-		self.mode = mode
-		self.I = torch.eye(self.dim)
-		self.freq_initialised = False
-
-	def forward(self, x: Tensor) -> Tensor:
-		if self.mode == 'onehot':
-			return self.onehot(x.type(torch.int64))
-		elif self.mode == 'freq':
-			return self.freq(x.type(torch.int64))
-
-	def freq(self, x: Tensor) -> Tensor:
-		if not self.freq_initialised:
-			self.init_freq()
-		out_shape = list(x.shape) + [self.dim]
-		return self.pe[x.reshape(-1)].reshape(*out_shape)
-
-	def onehot(self, x: Tensor) -> Tensor:
-		out_shape = list(x.shape) + [self.dim]
-		return torch.index_select(input=self.I, dim=0, index=x.reshape(-1)).reshape(*out_shape)
-
-	def init_freq(self):
-		max_len = 2 * self.dim
-		position = torch.arange(max_len).unsqueeze(1)
-		self.pe = torch.zeros(max_len, self.dim)
-		self.pe[:, 0::2] = torch.sin(
-			position * torch.exp(torch.arange(0, self.dim, 2) * (-math.log(10000.0) / self.dim)))
-		self.pe[:, 1::2] = torch.cos(
-			position * torch.exp(torch.arange(1, self.dim, 2) * (-math.log(10000.0) / self.dim)))
-		self.freq_initialised = True
+		'Returns: the actual n, obtained by taking the argmax over n_pred_logits (shape: batch)'
+		return self.n_pred
 
 
 

@@ -78,6 +78,7 @@ class MergeGNN(MessagePassing):
 	def forward(self, x: Tensor, edge_index: Tensor, pos: Tensor, obj_idx: Optional[Tensor] = None):
 		edge_index = self.sort_edge_index(edge_index)
 		self.set_decoder_preds(x, edge_index)
+		self.obj_idx = obj_idx
 		return self.propagate(x=x, edge_index=edge_index, pos=pos, idx=torch.arange(pos.shape[0]).unsqueeze(1), size=(x.shape[0], x.shape[0]))
 
 	def sort_edge_index(self, edge_index): # TODO: is this necessary?
@@ -91,8 +92,14 @@ class MergeGNN(MessagePassing):
 		self.values["x_pred"].append(decoded)
 		self.values["batch_pred"].append(decoded_batch)
 
+	def set_obj_idxs(self, obj_idxs, idx_i, idx_j, decoded, decoded_batch):
+		obj_idx_edge = torch.nested_tensor([])
+		breakpoint()
+
+
 	def message(self, x_j: Tensor, pos_i: Tensor, pos_j: Tensor, idx_i: Tensor, idx_j: Tensor) -> Tensor:  # pos_j: edge_index[0,:], pos_i: edge_index[1,:]
 		decoded, decoded_batch = self.input_decoder(x_j) # = self.input_decoder(x[edge_index[1,:],:])
+		self.set_obj_idxs(obj_idxs=self.obj_idx, idx_i=idx_i, idx_j=idx_j, decoded=decoded, decoded_batch=decoded_batch)
 		if self.position == 'rel':
 			ope = scatter(src=torch.ones(decoded_batch.shape[0]), index=decoded_batch, dim_size=idx_i.shape[0]).long()
 			pos_i_exp = pos_i.repeat_interleave(ope, dim=0)
