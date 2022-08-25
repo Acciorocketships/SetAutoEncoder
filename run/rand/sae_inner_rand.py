@@ -2,13 +2,11 @@ import torch
 from torch.optim import Adam
 from sae import AutoEncoderInner as AutoEncoder
 from sae import get_loss_idxs, correlation
-from torch.nn import CrossEntropyLoss
 import wandb
 from torch_geometric.data import Data, Batch
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="params/sae_inner_rand-{name}.pt"
-optim_path_base = "params/optim_inner_rand-{name}.pt"
 
 project = "sae-rand"
 
@@ -29,7 +27,6 @@ def experiments():
 		config.update(cfg)
 		config["name"] = name
 		config["model_path"] = model_path_base.format(name=name)
-		config["optim_path"] = optim_path_base.format(name=name)
 		run(**config)
 
 
@@ -40,7 +37,6 @@ def run(
 			epochs = 100000,
 			batch_size = 16,
 			model_path = model_path_base.format(name="base"),
-			optim_path = optim_path_base.format(name="base"),
 			name = None,
 			load = False,
 			log = True,
@@ -66,8 +62,6 @@ def run(
 		try:
 			model_state_dict = torch.load(model_path)
 			autoencoder.load_state_dict(model_state_dict)
-			optim_state_dict = torch.load(optim_path)
-			optim.load_state_dict(optim_state_dict)
 		except Exception as e:
 			print(e)
 
@@ -82,36 +76,29 @@ def run(
 		data = Batch.from_data_list(data_list)
 
 		xr, _ = autoencoder(data.x, data.batch)
-		var = autoencoder.get_vars()
 
-		pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
-
-		x = data.x[var["x_perm_idx"]]
-		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
-		crossentropy_loss = CrossEntropyLoss()(var["n_pred_logits"], var["n"])
-		loss = mse_loss + crossentropy_loss
-
-		corr = correlation(x[tgt_idx], xr[pred_idx])
-
-		if log:
-			wandb.log({
-					"loss": mse_loss,
-					"crossentropy_loss": crossentropy_loss,
-					"total_loss": loss,
-					"corr": corr,
-				})
+		loss_data = autoencoder.loss()
+		loss = loss_data["loss"]
 
 		loss.backward()
 		optim.step()
 
 		optim.zero_grad()
 
+		var = autoencoder.get_vars()
+		pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
+		corr = correlation(x[tgt_idx], xr[pred_idx])
+
+		if log:
+			wandb.log({
+				**loss_data,
+				"corr": corr,
+			})
+
 	if load:
 		try:
 			model_state_dict = autoencoder.state_dict()
 			torch.save(model_state_dict, model_path)
-			optim_state_dict = optim.state_dict()
-			torch.save(optim_state_dict, optim_path)
 		except Exception as e:
 			print(e)
 

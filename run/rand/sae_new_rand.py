@@ -89,29 +89,25 @@ def run(
 		data = Batch.from_data_list(data_list)
 
 		xr, _ = autoencoder(data.x, data.batch)
-		var = autoencoder.get_vars()
 
-		pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
-
-		x = data.x[var["x_perm_idx"]]
-		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
-		crossentropy_loss = CrossEntropyLoss()(var["n_pred_logits"], var["n"])
-		loss = mse_loss + crossentropy_loss
-
-		corr = correlation(x[tgt_idx], xr[pred_idx])
-
-		if log:
-			wandb.log({
-						"loss": mse_loss,
-						"crossentropy_loss": crossentropy_loss,
-						"total_loss": loss,
-						"corr": corr,
-					})
+		loss_data = autoencoder.loss()
+		loss = loss_data["loss"]
 
 		loss.backward()
 		optim.step()
 
 		optim.zero_grad()
+
+		var = autoencoder.get_vars()
+		pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
+		corr = correlation(x[tgt_idx], xr[pred_idx])
+
+		if log:
+			wandb.log({
+						**loss_data,
+						"corr": corr,
+					})
+
 
 	wandb.finish()
 

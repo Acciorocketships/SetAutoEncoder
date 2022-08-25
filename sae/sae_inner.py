@@ -4,11 +4,16 @@ from torch_scatter import scatter
 from torch_geometric.data import Data, Batch
 from sae.mlp import build_mlp
 from sae.positional import PositionalEncoding
+from sae.loss import get_loss_idxs, correlation
+from torch.nn import CrossEntropyLoss
 
 
 class AutoEncoder(nn.Module):
 
 	def __init__(self, *args, **kwargs):
+		'''
+		Must have self.encoder and self.decoder objects, which follow the encoder and decoder interfaces
+		'''
 		super().__init__()
 		self.encoder = Encoder(*args, **kwargs)
 		self.decoder = Decoder(*args, **kwargs)
@@ -19,11 +24,35 @@ class AutoEncoder(nn.Module):
 		return xr, batchr
 
 	def get_vars(self):
-		return {
+		self.vars = {
 			"n_pred_logits": self.decoder.get_n_pred_logits(),
 			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
 			"x_perm_idx": self.encoder.get_x_perm(),
+			"x": self.encoder.get_x(),
+			"xr": self.decoder.get_x_pred(),
+		}
+		return self.vars
+
+	def loss(self, vars=None):
+		'''
+		Input: the output of self.get_vars()
+		Returns: a dict of info which must include 'loss'
+		'''
+		if vars is None:
+			vars = self.get_vars()
+		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
+		x = vars["x"]
+		xr = vars["xr"]
+		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
+		crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
+		loss = mse_loss + crossentropy_loss
+		corr = correlation(x[tgt_idx], xr[pred_idx])
+		return {
+			"loss": loss,
+			"crossentropy_loss": crossentropy_loss,
+			"mse_loss": mse_loss,
+			"corr": corr,
 		}
 
 
@@ -37,11 +66,12 @@ class Encoder(nn.Module):
 		self.hidden_dim = hidden_dim
 		self.max_n = max_n + 1
 		self.layernorm = kwargs.get("layernorm_encoder", False)
+		self.nonlinearity = kwargs.get("activation_encoder", nn.Tanh)
 		# Modules
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
-		self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
-		self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
-		self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=self.layernorm)
+		self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=self.nonlinearity)
+		self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=self.nonlinearity)
+		self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=self.layernorm, nonlinearity=self.nonlinearity)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
 
 	def sort(self, x):
@@ -115,10 +145,11 @@ class Decoder(nn.Module):
 		self.hidden_dim = hidden_dim
 		self.max_n = max_n + 1
 		self.layernorm = kwargs.get("layernorm_decoder", False)
+		self.nonlinearity = kwargs.get("activation_decoder", nn.Tanh)
 		# Modules
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
-		self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True)
-		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=self.layernorm)
+		self.pos_encoder = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=self.nonlinearity)
+		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=self.layernorm, nonlinearity=self.nonlinearity)
 		self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=self.max_n)
 
 	def forward(self, z):

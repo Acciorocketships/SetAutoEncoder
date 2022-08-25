@@ -4,11 +4,16 @@ from torch_scatter import scatter
 from torch_geometric.data import Data, Batch
 from sae.mlp import build_mlp
 from sae.positional import PositionalEncoding
+from sae.loss import get_loss_idxs, correlation
+from torch.nn import CrossEntropyLoss
 
 
 class AutoEncoder(nn.Module):
 
 	def __init__(self, *args, **kwargs):
+		'''
+		Must have self.encoder and self.decoder objects, which follow the encoder and decoder interfaces
+		'''
 		super().__init__()
 		self.encoder = Encoder(*args, **kwargs)
 		self.decoder = Decoder(*args, **kwargs)
@@ -19,11 +24,35 @@ class AutoEncoder(nn.Module):
 		return xr, batchr
 
 	def get_vars(self):
-		return {
+		self.vars = {
 			"n_pred_logits": self.decoder.get_n_pred_logits(),
 			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
 			"x_perm_idx": self.encoder.get_x_perm(),
+			"x": self.encoder.get_x(),
+			"xr": self.decoder.get_x_pred(),
+		}
+		return self.vars
+
+	def loss(self, vars=None):
+		'''
+		Input: the output of self.get_vars()
+		Returns: a dict of info which must include 'loss'
+		'''
+		if vars is None:
+			vars = self.get_vars()
+		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
+		x = vars["x"]
+		xr = vars["xr"]
+		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
+		crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
+		loss = mse_loss + crossentropy_loss
+		corr = correlation(x[tgt_idx], xr[pred_idx])
+		return {
+			"loss": loss,
+			"crossentropy_loss": crossentropy_loss,
+			"mse_loss": mse_loss,
+			"corr": corr,
 		}
 
 
@@ -41,7 +70,7 @@ class Encoder(nn.Module):
 		self.nlayers_valnet = kwargs.get("nlayers_valnet_encoder", 2)
 		self.nlayers_encoder = kwargs.get("nlayers_encoder", 2)
 		self.layernorm = kwargs.get("layernorm_encoder", False)
-		self.nonlinearity = kwargs.get("activation_encoder", nn.ReLU)
+		self.nonlinearity = kwargs.get("activation_encoder", nn.Tanh)
 		self.pos_mode = kwargs.get("pos_mode", "onehot")
 		# Modules
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=self.pos_mode)
@@ -136,7 +165,7 @@ class Decoder(nn.Module):
 		self.nlayers_valnet = kwargs.get("nlayers_valnet_decoder", 0)
 		self.nlayers_decoder = kwargs.get("nlayers_decoder", 2)
 		self.layernorm = kwargs.get("layernorm_decoder", False)
-		self.nonlinearity = kwargs.get("activation_decoder", nn.ReLU)
+		self.nonlinearity = kwargs.get("activation_decoder", nn.Tanh)
 		self.pos_mode = kwargs.get("pos_mode", "onehot")
 		# Modules
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=self.pos_mode)
