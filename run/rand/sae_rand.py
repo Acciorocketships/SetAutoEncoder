@@ -5,6 +5,7 @@ import wandb
 import inspect
 from sae import AutoEncoderInner, AutoEncoderNew, AutoEncoderVariational
 from sae import get_loss_idxs, correlation
+from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}.pt"
@@ -13,9 +14,10 @@ project = "sae-rand-test"
 
 def experiments():
 	trials = {
-		"variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
-		"new": {"model": AutoEncoderNew},
-		"inner": {"model": AutoEncoderInner},
+		"tspn": {"model": AutoEncoderTSPN, "log": True}
+		# "variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
+		# "new": {"model": AutoEncoderNew},
+		# "inner": {"model": AutoEncoderInner},
 	}
 	default = {
 		"dim": 4,
