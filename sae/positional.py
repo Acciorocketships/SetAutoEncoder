@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from torch import Tensor
+import math
 
 class PositionalEncoding(nn.Module):
 
@@ -15,6 +16,8 @@ class PositionalEncoding(nn.Module):
 			return self.onehot(x.int()).float()
 		elif self.mode == 'binary':
 			return self.binary(x.int()).float()
+		elif self.mode == 'sinusoid':
+			return self.sinusoid(x)
 
 	def onehot(self, x: Tensor) -> Tensor:
 		out_shape = list(x.shape) + [self.dim]
@@ -40,6 +43,15 @@ class PositionalEncoding(nn.Module):
 	def onehot_logits_to_int(self, x: Tensor) -> Tensor:
 		return torch.argmax(x, dim=-1)
 
+	def sinusoid(self, x: Tensor):
+		max_n = torch.max(x)+1
+		pe = torch.zeros(max_n, self.dim)  # like 10x4
+		position = torch.arange(0, max_n, dtype=torch.float).unsqueeze(1)
+		div_term = torch.exp(torch.arange(0, self.dim, 2).float() * (-math.log(10000.0) / self.dim))
+		pe[:, 0::2] = torch.sin(position * div_term)
+		pe[:, 1::2] = torch.cos(position * div_term)
+		return pe
+
 
 
 if __name__ == '__main__':
@@ -61,3 +73,7 @@ if __name__ == '__main__':
 	y = torch.rand(k.shape[0], 6)
 	loss1 = cross_entropy(y, k, reduction='none')
 	loss2 = cross_entropy(y, keys, reduction='none')
+
+	pos = PositionalEncoding(dim=8, mode='sinusoid')
+	k = torch.arange(5)
+	keys = pos(k)

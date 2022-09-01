@@ -108,7 +108,10 @@ def fixed_order_idxs(y, batch, order_fn=lambda y: y.float() @ torch.arange(1,y.s
 
 
 def fixed_order_loss(y, yhat, batch, loss_fn=cross_entropy_loss, order_fn=None):
-    y_perm = fixed_order_idxs(y=y, batch=batch, order_fn=order_fn)
+    if order_fn is None:
+        y_perm = slice(None)
+    else:
+        y_perm = fixed_order_idxs(y=y, batch=batch, order_fn=order_fn)
     y_ord = y[y_perm]
     # yhat_ord = yhat[y_perm]
     loss = torch.mean(loss_fn(yhat, y_ord))

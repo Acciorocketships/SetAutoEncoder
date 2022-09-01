@@ -3,6 +3,7 @@ from torch import nn
 from torch_scatter import scatter
 from torch_geometric.data import Data, Batch
 from sae.positional import PositionalEncoding
+from sae.mlp import build_mlp
 from sae.loss import get_loss_idxs, correlation, fixed_order_loss, mean_squared_loss
 from torch.nn import CrossEntropyLoss
 
@@ -64,15 +65,15 @@ class AutoEncoder(nn.Module):
 
 class Encoder(nn.Module):
 
-    def __init__(self, dim, hidden_dim=64, **kwargs):
+    def __init__(self, dim, hidden_dim=64, max_n=8, **kwargs):
         super().__init__()
         # Params
         self.input_dim = dim
         self.weight_dim = int(hidden_dim**0.5)
+        self.max_n = max_n + 1
         # Modules
-        self.pos_gen = PositionalEncoding(dim=self.input_dim, mode='sinusoid')
-        self.Wk = nn.Linear(self.input_dim, self.weight_dim, bias=False)
-        self.Wv = nn.Linear(self.input_dim, self.weight_dim, bias=False)
+        self.size_gen = PositionalEncoding(dim=self.max_n, mode='onehot')
+        self.rnn = nn.GRU(input_size=dim, hidden_size=hidden_dim, batch_first=True, num_layers=1)
 
     def forward(self, x, batch=None):
         # x: n x input_dim
@@ -86,21 +87,16 @@ class Encoder(nn.Module):
         self.batch = batch
 
         max_n = torch.max(n)
-        xmat = torch.zeros(n.shape[0], max_n, self.input_dim)
         mask = torch.zeros(n.shape[0], max_n).bool()
         ptr = torch.cat([torch.zeros(1), torch.cumsum(n, dim=0)], dim=0).int()
+        x_list = [None] * n.shape[0]
         for i in range(n.shape[0]):
-            xmat[i, :n[i], :] = x[ptr[i]:ptr[i + 1], :]
+            x_list[i] = x[ptr[i]:ptr[i + 1], :]
             mask[i, :n[i]] = True
+        x_packed = nn.utils.rnn.pack_sequence(x_list, enforce_sorted=False)
 
-        pos = self.pos_gen(torch.arange(max_n)).unsqueeze(0)
-        xpos = xmat + pos
-
-        yk = self.Wk(xpos) * mask.unsqueeze(-1)
-        yv = self.Wv(xpos) * mask.unsqueeze(-1)
-        ykv = yk.unsqueeze(-2) * yv.unsqueeze(-1)
-        z_mat = ykv.sum(dim=1)
-        z = z_mat.view(n.shape[0], self.weight_dim**2)
+        _, z = self.rnn(x_packed)
+        z = z[0,:,:]
 
         out = torch.cat([z, n.unsqueeze(-1)], dim=-1)
         return out
@@ -132,12 +128,11 @@ class Decoder(nn.Module):
         super().__init__()
         # Params
         self.output_dim = dim
-        self.weight_dim = int(hidden_dim**0.5)
+        self.hidden_dim = hidden_dim
         self.max_n = max_n+1
         # Modules
-        self.pos_gen = PositionalEncoding(dim=self.output_dim, mode='sinusoid')
-        self.Wq = nn.Linear(self.output_dim, self.weight_dim, bias=False)
-        self.mapping = nn.Linear(self.weight_dim, self.output_dim)
+        self.rnn = nn.GRU(input_size=hidden_dim, hidden_size=hidden_dim, batch_first=True, num_layers=1)
+        self.mapping = build_mlp(input_dim=hidden_dim, output_dim=dim, nlayers=2)
 
 
     def forward(self, z):
@@ -146,18 +141,21 @@ class Decoder(nn.Module):
         z = z[:,:-1]
         max_n = torch.max(n)
 
+        y_padded = torch.zeros(z.shape[0], max_n, self.hidden_dim) # B x N x D
+        hidden = z.unsqueeze(0) # 1 x B x K
+        curr = torch.zeros(z.shape[0], 1, self.hidden_dim) # B x 1 x D
+        for i in range(max_n):
+            curr, hidden = self.rnn(curr, hidden)
+            y_padded[:,i,:] = curr[:,0,:]
+
+        x_padded = self.mapping(y_padded)
+
         mask = torch.zeros(n.shape[0], max_n).bool()
         for i in range(n.shape[0]):
-            mask[i,:n[i]] = True
-
-        pos = self.pos_gen(torch.arange(max_n))
-        query = self.Wq(pos).unsqueeze(0).expand(n.shape[0], -1, -1) # B x N x sqrt(K)
-        z_mat = z.view(n.shape[0], self.weight_dim, self.weight_dim)
-        decoded = torch.matmul(query, z_mat)
-        x_padded = self.mapping(decoded)
-        x_flat_padded = x_padded.view(n.shape[0] * max_n, self.output_dim)
+            mask[i, :n[i]] = True
         mask_flat = mask.view(n.shape[0] * max_n)
-        x = x_flat_padded[mask_flat,:]
+        x_flat_padded = x_padded.view(n.shape[0] * max_n, self.output_dim)
+        x = x_flat_padded[mask_flat, :]
 
         batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
         self.batch = batch

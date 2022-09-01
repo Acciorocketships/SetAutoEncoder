@@ -6,6 +6,8 @@ import inspect
 from sae import AutoEncoderInner, AutoEncoderNew, AutoEncoderVariational
 from sae import get_loss_idxs, correlation
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
+from sae.baseline_transformer import AutoEncoder as AutoEncoderTransformer
+from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}.pt"
@@ -14,7 +16,9 @@ project = "sae-rand-test"
 
 def experiments():
 	trials = {
-		"tspn": {"model": AutoEncoderTSPN, "log": True}
+		"rnn": {"model": AutoEncoderRNN, "log": False}
+		# "transformer": {"model": AutoEncoderTransformer, "log": False}
+		# "tspn": {"model": AutoEncoderTSPN, "log": True}
 		# "variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
 		# "new": {"model": AutoEncoderNew},
 		# "inner": {"model": AutoEncoderInner},
