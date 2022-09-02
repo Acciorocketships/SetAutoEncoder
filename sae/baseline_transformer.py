@@ -43,6 +43,8 @@ class AutoEncoder(nn.Module):
         pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
         x = vars["x"]
         xr = vars["xr"]
+        if torch.any(torch.isnan(xr)):
+            return {"loss": torch.tensor(float('inf')), "mse_loss":float('inf'), "corr": 0}
         batch = vars["batch"]
         mse_loss = fixed_order_loss(
             yhat=xr[pred_idx],
@@ -50,12 +52,10 @@ class AutoEncoder(nn.Module):
             batch=batch[tgt_idx],
             loss_fn=mean_squared_loss,
         )
-        crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
-        loss = mse_loss + crossentropy_loss
+        loss = mse_loss
         corr = correlation(x[tgt_idx], xr[pred_idx])
         return {
             "loss": loss,
-            "crossentropy_loss": crossentropy_loss,
             "mse_loss": mse_loss,
             "corr": corr,
         }

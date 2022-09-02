@@ -12,13 +12,13 @@ from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}.pt"
 
-project = "sae-rand-test"
+project = "sae-rand"
 
 def experiments():
 	trials = {
-		"rnn": {"model": AutoEncoderRNN, "log": False}
-		# "transformer": {"model": AutoEncoderTransformer, "log": False}
-		# "tspn": {"model": AutoEncoderTSPN, "log": True}
+		# "rnn": {"model": AutoEncoderRNN, "log": True},
+		# "transformer": {"model": AutoEncoderTransformer, "log": True},
+		"tspn": {"model": AutoEncoderTSPN, "log": True},
 		# "variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
 		# "new": {"model": AutoEncoderNew},
 		# "inner": {"model": AutoEncoderInner},
@@ -27,7 +27,7 @@ def experiments():
 		"dim": 4,
 		"hidden_dim": 64,
 		"max_n": 16,
-		"epochs": 100000,
+		"epochs": 25000,
 		"load": False,
 		"log": True,
 	}

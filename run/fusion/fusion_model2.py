@@ -1,36 +1,28 @@
 import torch
 from torch import nn
 from torch_geometric.nn import Sequential
+from sae import AutoEncoderNew
 from sae import get_loss_idxs, batch_to_set_lens
 from sae import cross_entropy_loss, mean_squared_loss, correlation, min_permutation_idxs
-from fusion_gnn import EncodeGNN, MergeGNN
+from fusion_gnn2 import EncodeGNN, MergeGNN
 
 
 class FusionModel(nn.Module):
-	def __init__(self, input_dim, embedding_dim=256, gnn_nlayers=1, max_agents=16, max_obj=16, position='rel', **kwargs):
+	def __init__(self, input_dim, embedding_dim=64, autoencoder=AutoEncoderNew, gnn_nlayers=1, max_obj=16, position='rel', **kwargs):
 		super().__init__()
-		self.input_dim = input_dim
-		self.embedding_dim = embedding_dim
-		self.pos_dim = 2 if (position is not None) else 0
 		self.gnn_nlayers = gnn_nlayers
 		self.max_obj = max_obj
-		self.max_agents = max_agents
 		self.position = position
-		self.encode_gnn = EncodeGNN(in_channels=self.input_dim+self.pos_dim, out_channels=self.embedding_dim, max_obj=self.max_obj, position=self.position, **kwargs)
+		self.autoencoder = autoencoder(dim=input_dim, hidden_dim=embedding_dim, max_n=max_obj)
+		self.encode_gnn = EncodeGNN(autoencoder=self.autoencoder, position=self.position, **kwargs)
 		self.merge_gnn = self.create_merge_gnn(**kwargs)
-		self.decoder = self.merge_gnn[0].input_decoder
-		self.encode_gnn.encoder = self.merge_gnn[0].merge_encoder
 
 
 	def create_merge_gnn(self, **kwargs):
 		layers = []
 		signatures = []
 		merge_gnn_layer = MergeGNN(
-			in_channels=self.embedding_dim,
-			out_channels=self.embedding_dim,
-			orig_dim=self.input_dim+self.pos_dim,
-			max_agents=self.max_agents,
-			max_obj=self.max_obj,
+			autoencoder=self.autoencoder,
 			position=self.position,
 			**kwargs,
 		)
@@ -60,8 +52,6 @@ class FusionModel(nn.Module):
 		obj_idx = obj_agent_edge_index[1, self.encode_gnn.x_perm]
 		agent_idx = obj_agent_edge_index[0, self.encode_gnn.x_perm]
 		n_agents = obj_x.shape[0]
-		obj_idx_nested = torch.nested_tensor([obj_idx[agent_idx==i] for i in range(n_agents)])
-		# x_nested = torch.nested_tensor([self.encode_gnn.input[agent_idx==i] for i in range(n_agents)])
 
 		self.merge_gnn[0].values["obj_idx"].append(obj_idx)
 		self.merge_gnn[0].values["batch_output"].append(agent_idx)
@@ -69,7 +59,7 @@ class FusionModel(nn.Module):
 		self.merge_gnn[0].values["x_output"].append(self.encode_gnn.input)
 		self.merge_gnn[0].values["perm_output"].append(self.encode_gnn.x_perm)
 
-		self.merged = self.merge_gnn(x=self.enc, edge_index=agent_edge_index, pos=agent_pos, obj_idx=obj_idx_nested)
+		self.merged = self.merge_gnn(x=self.enc, edge_index=agent_edge_index, pos=agent_pos)
 
 		self.decoded, self.batch = self.decoder(self.merged)
 
@@ -97,14 +87,14 @@ class FusionModel(nn.Module):
 		merge_element_loss, merge_corr = self.merge_corr_loss(return_corr=True)
 		decoder_size_loss = self.decoder_size_loss()
 		decoder_element_loss, decoder_corr = self.decoder_corr_loss(return_corr=True)
-		filter_data = self.filter_loss(return_accuracy=True, num_layers=2)
-		filter_loss = filter_data["loss"]
+		# filter_data = self.filter_loss(return_accuracy=True, num_layers=2)
+		filter_loss = 0 # filter_data["loss"]
 
 		decoder_loss = 0.1 * (decoder_size_loss + 100 * decoder_element_loss)
 		merge_loss = merge_size_loss + 100 * merge_element_loss
 		loss = 1. * merge_loss + 0.3 * filter_loss + 0 * decoder_loss
 
-		del filter_data["loss"]
+		# del filter_data["loss"]
 		return {
 			"loss": loss,
 			"merge_element_loss": merge_element_loss / self.gnn_nlayers,

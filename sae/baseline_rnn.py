@@ -51,12 +51,10 @@ class AutoEncoder(nn.Module):
             batch=batch[tgt_idx],
             loss_fn=mean_squared_loss,
         )
-        crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
-        loss = mse_loss + crossentropy_loss
+        loss = mse_loss
         corr = correlation(x[tgt_idx], xr[pred_idx])
         return {
             "loss": loss,
-            "crossentropy_loss": crossentropy_loss,
             "mse_loss": mse_loss,
             "corr": corr,
         }

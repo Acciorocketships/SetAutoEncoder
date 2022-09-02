@@ -8,18 +8,13 @@ from sae.mlp import build_mlp
 
 
 class EncodeGNN(MessagePassing):
-	def __init__(self, in_channels, out_channels, max_obj=8, position='abs', **kwargs):
+	def __init__(self, autoencoder, position='abs', **kwargs):
 		super().__init__()
-		self.input_dim = in_channels
-		self.output_dim = out_channels
 		self.position = position
-		self.encoder = EncoderNew(dim=self.input_dim, hidden_dim=self.output_dim, max_n=max_obj)
+		self.encoder = autoencoder.encoder
 
 	def forward(self, x: Tensor, edge_index: Tensor, posx: Tensor, posa: Tensor):
 		edge_index = edge_index.flip(dims=(0,)) # switch from (agents -> objects) to (objects -> agents)
-		self.agent_pos = posa
-		self.obj_pos = posx
-		self.edge_index = edge_index
 		return self.propagate(x=x, posx=posx, posa=posa, edge_index=edge_index, size=(posx.shape[0], posa.shape[0]))
 
 	def message(self, x_j: Tensor, posx_j: Tensor, posa_i: Tensor) -> Tensor:
@@ -36,49 +31,28 @@ class EncodeGNN(MessagePassing):
 				  ptr: Optional[Tensor] = None,
 				  dim_size: Optional[int] = None) -> Tensor:
 		out = self.encoder(inputs, batch=index, n_batches=dim_size)
-		self.input = inputs
-		self.batch = index
-		self.x_perm = self.encoder.get_x_perm()
 		return out
 
 
 class MergeGNN(MessagePassing):
-	def __init__(self, in_channels, out_channels, orig_dim, max_obj=16, position='abs', **kwargs):
+	def __init__(self, autoencoder, position='abs', **kwargs):
 		super().__init__()
-		self.input_dim = in_channels
-		self.output_dim = out_channels
-		self.pos_dim = 2 if position is not None else 0
-		self.orig_dim = orig_dim
 		self.position = position
-		self.input_decoder = DecoderNew(hidden_dim=self.input_dim, dim=self.orig_dim, max_n=max_obj)
-		self.merge_encoder = EncoderNew(dim=self.orig_dim, hidden_dim=self.output_dim, max_n=max_obj)
-		self.filter = FilterModel(input_dim=self.orig_dim, hidden_dim=self.orig_dim)
+		self.autoencoder = autoencoder
+		self.merge_decoder = autoencoder.decoder
+		self.merge_encoder = autoencoder.encoder
+		self.filter = FilterModel(input_dim=self.merge_encoder.input_dim, hidden_dim=self.merge_encoder.input_dim)
 		self.reset_values()
 
 	def reset_values(self):
-		self.values = {
-			"n_pred_logits": [],
-			"n_pred": [],
-			"x_pred": [],
-			"batch_pred": [],
-			"n_output": [],
-			"x_output": [],
-			"batch_output": [],
-			"perm_output": [],
-			"max_n": self.input_decoder.max_n,
-			"obj_idx": [],
-			"obj_idx_per_edge": [],
-			"x_per_edge": [],
-			"agent_idx_per_edge": [],
-		}
+		self.values = []
 
 	def get_values(self, key):
 		return self.values[key]
 
-	def forward(self, x: Tensor, edge_index: Tensor, pos: Tensor, obj_idx: Optional[Tensor] = None):
+	def forward(self, x: Tensor, edge_index: Tensor, pos: Tensor):
 		edge_index = self.sort_edge_index(edge_index)
 		self.set_decoder_preds(x, edge_index)
-		self.obj_idx = obj_idx
 		return self.propagate(x=x, edge_index=edge_index, pos=pos, idx=torch.arange(pos.shape[0]).unsqueeze(1), size=(x.shape[0], x.shape[0]))
 
 	def sort_edge_index(self, edge_index): # TODO: is this necessary?
@@ -86,20 +60,11 @@ class MergeGNN(MessagePassing):
 		return edge_index[:,perm]
 
 	def set_decoder_preds(self, x: Tensor, edge_index: Tensor):
-		decoded, decoded_batch = self.input_decoder(x)
-		self.values["n_pred_logits"].append(self.input_decoder.get_n_pred_logits())
-		self.values["n_pred"].append(self.input_decoder.get_n_pred())
-		self.values["x_pred"].append(decoded)
-		self.values["batch_pred"].append(decoded_batch)
-
-	def set_obj_idxs(self, obj_idxs, idx_i, idx_j, decoded, decoded_batch):
-		obj_idx_edge = torch.nested_tensor([])
-		breakpoint()
-
+		decoded, decoded_batch = self.merge_decoder(x)
+		self.values.append(self.autoencoder.get_vars())
 
 	def message(self, x_j: Tensor, pos_i: Tensor, pos_j: Tensor, idx_i: Tensor, idx_j: Tensor) -> Tensor:  # pos_j: edge_index[0,:], pos_i: edge_index[1,:]
-		decoded, decoded_batch = self.input_decoder(x_j) # = self.input_decoder(x[edge_index[1,:],:])
-		# self.set_obj_idxs(obj_idxs=self.obj_idx, idx_i=idx_i, idx_j=idx_j, decoded=decoded, decoded_batch=decoded_batch)
+		decoded, decoded_batch = self.merge_decoder(x_j) # = self.merge_decoder(x[edge_index[1,:],:])
 		if self.position == 'rel':
 			ope = scatter(src=torch.ones(decoded_batch.shape[0]), index=decoded_batch, dim_size=idx_i.shape[0]).long()
 			pos_i_exp = pos_i.repeat_interleave(ope, dim=0)
@@ -108,7 +73,8 @@ class MergeGNN(MessagePassing):
 		return (decoded, decoded_batch)
 
 	def update_rel_pos(self, x: Tensor, pos_i: Tensor, pos_j: Tensor) -> Tensor:
-		x[:,-self.pos_dim:] = x[:,-self.pos_dim:] + pos_j - pos_i
+		pos_dim = 2 if self.position is not None else 0
+		x[:,-pos_dim:] = x[:,-pos_dim:] + pos_j - pos_i
 		return x
 
 	def filter_duplicates(self, x: Tensor, index: Tensor, dim_size: Optional[int] = None):
@@ -145,10 +111,6 @@ class MergeGNN(MessagePassing):
 		x = x[mask,:]
 		agent_idx = agent_idx[mask]
 		output = self.merge_encoder(x, batch=agent_idx, n_batches=dim_size)
-		self.values["n_output"].append(scatter(src=torch.ones(agent_idx.shape[0]), index=agent_idx, dim_size=dim_size, reduce='sum').long())
-		self.values["x_output"].append(x)
-		self.values["batch_output"].append(agent_idx)
-		self.values["perm_output"].append(self.merge_encoder.get_x_perm())
 		return output
 
 
@@ -169,3 +131,6 @@ class FilterModel(torch.nn.Module):
 		b = a1 * a2
 		c = self.post_mlp(b)
 		return c
+
+# TODO: make sure it works when position=None, and pos is not passed to forward
+# TODO: make sure that "rel" position works

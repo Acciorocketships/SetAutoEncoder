@@ -4,7 +4,7 @@ from torch_scatter import scatter
 from torch_geometric.data import Data, Batch
 from sae.mlp import build_mlp
 from sae.positional import PositionalEncoding
-from sae.loss import get_loss_idxs, correlation, min_permutation_loss, mean_squared_loss
+from sae.loss import get_loss_idxs, correlation, min_permutation_idxs, mean_squared_loss
 from torch.nn import CrossEntropyLoss
 
 
@@ -42,18 +42,20 @@ class AutoEncoder(nn.Module):
 		if vars is None:
 			vars = self.get_vars()
 		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
-		x = vars["x"]
-		xr = vars["xr"]
-		batch = vars["batch"]
-		mse_loss = min_permutation_loss(
-			yhat=xr[pred_idx],
-			y=x[tgt_idx],
-			batch=batch[tgt_idx],
+		x = vars["x"][tgt_idx]
+		xr = vars["xr"][pred_idx]
+		batch = vars["batch"][tgt_idx]
+		perm = min_permutation_idxs(
+			yhat=xr,
+			y=x,
+			batch=batch,
 			loss_fn=mean_squared_loss,
 		)
+		xr = xr[perm]
+		mse_loss = torch.mean(mean_squared_loss(x, xr))
 		crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
 		loss = mse_loss + crossentropy_loss
-		corr = correlation(x[tgt_idx], xr[pred_idx])
+		corr = correlation(x, xr)
 		return {
 			"loss": loss,
 			"crossentropy_loss": crossentropy_loss,

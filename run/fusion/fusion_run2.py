@@ -2,7 +2,7 @@ import wandb
 from torch_geometric.loader import DataLoader
 from torch.optim import Adam
 from fusion_dataset import ObsEnv
-from fusion_model import FusionModel
+from fusion_model2 import FusionModel
 from visualiser import Visualiser
 
 
@@ -12,7 +12,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"vanilla": {"log": True},
+		"vanilla": {"log": False},
 	}
 	default = {
 		"feat_dim": 4,
