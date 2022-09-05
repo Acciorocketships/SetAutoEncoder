@@ -4,6 +4,7 @@ from torch_geometric import utils
 import networkx as nx
 from torch_cluster import radius, radius_graph
 from torch_geometric.data import HeteroData, Data, Batch
+from graphtorch.util import *
 
 class ObsEnv:
 
@@ -77,11 +78,57 @@ class ObsEnv:
             conn = list(nx.connected_components(g))
         return data
 
+    def sample_nested(self):
+        data = self.sample()
+        edge_idx_obj = data[("agent", "observe", "object")].edge_index.T
+        edge_idx_agent = data[("agent", "communicate", "agent")].edge_index.T
+        obj_flat = data["object"].x
+        obj = scatter_nested(obj_flat, idxi=edge_idx_obj[:,0], idxj=edge_idx_obj[:,1])
+        obj_idx = scatter_nested(edge_idx_obj[:,1], idxi=edge_idx_obj[:,0], idxj=torch.arange(edge_idx_obj.shape[0]))
+        return {
+            "obj_all": obj_flat,
+            "obj": obj,
+            "obj_idx": obj_idx,
+            "edge_idx": edge_idx_agent,
+        }
+
     def sample_n(self, n):
         datas = [self.sample() for _ in range(n)]
         return Batch.from_data_list(datas)
 
+    def sample_n_nested(self, n):
+        datas = [self.sample_nested() for _ in range(n)]
+        keys = datas[0].keys()
+        return {key: [datas[i][key] for i in range(len(datas))] for key in keys}
+
+    def sample_n_nested_combined(self, n):
+        datas = [self.sample_nested() for _ in range(n)]
+        num_agents = torch.tensor([size_nested(data["obj"], dim=0) for data in datas])
+        cum_num_agents = torch.cat([torch.zeros(1), torch.cumsum(num_agents, dim=0)[:-1]], dim=0).int()
+        num_objs = torch.tensor([data["obj_all"].shape[0] for data in datas])
+        cum_num_objs = torch.cat([torch.zeros(1), torch.cumsum(num_objs, dim=0)[:-1]], dim=0).int()
+        edge_idxs = torch.cat([datas[i]["edge_idx"] + cum_num_agents[i] for i in range(len(datas))], dim=0)
+        batch = torch.arange(len(datas)).repeat_interleave(num_agents)
+        obj_all = torch.cat([data["obj_all"] for data in datas], dim=0)
+        obj_list = sum([list(data["obj"].unbind()) for data in datas], [])
+        obj = torch.nested_tensor(obj_list)
+        obj_idx_list = sum([list(data["obj_idx"].unbind()) for data in datas], [])
+        cum_num_objs_rep = cum_num_objs.repeat_interleave(num_agents)
+        obj_idx_list = list(map(lambda x: x[0] + x[1], zip(obj_idx_list, cum_num_objs_rep)))
+        obj_idx = torch.nested_tensor(obj_idx_list)
+        return {
+            "obj_all": obj_all,
+            "obj": obj,
+            "obj_idx": obj_idx,
+            "edge_idx": edge_idxs,
+            "batch": batch,
+        }
+
+
 
 if __name__ == '__main__':
     env = ObsEnv()
-    data = env.sample_n(1000)
+    # data = env.sample_n(1000)
+    data = env.sample_n_nested_combined(10)
+    breakpoint()
+

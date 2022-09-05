@@ -5,6 +5,7 @@ __pycache__/
 runs/
 */wandb
 run/fusion/wandb/
+run/rand/wandb/
 .idea/
 params/
 *.egg-info

@@ -114,7 +114,7 @@ class FusionModel(nn.Module):
 			"decoder_element_loss": decoder_element_loss,
 			"decoder_corr": decoder_corr,
 			"filter_loss": filter_loss,
-			# **filter_data,
+			**filter_data,
 			# **self.stats(data),
 		}
 

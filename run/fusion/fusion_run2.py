@@ -3,7 +3,7 @@ from torch_geometric.loader import DataLoader
 from torch.optim import Adam
 from fusion_dataset import ObsEnv
 from fusion_model2 import FusionModel
-from visualiser import Visualiser
+from visualiser2 import Visualiser
 
 
 project = "fusion"
@@ -12,7 +12,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"vanilla": {"log": False},
+		"fusion2": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,
@@ -70,7 +70,7 @@ def run(
 		for data in loader:
 
 			yhat, batchhat = model(data)
-			loss_data = model.loss(data)
+			loss_data = model.loss()
 
 			loss = loss_data["loss"]
 			loss.backward()

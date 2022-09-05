@@ -31,6 +31,8 @@ class AutoEncoder(nn.Module):
 			"x_perm_idx": self.encoder.get_x_perm(),
 			"x": self.encoder.get_x(),
 			"xr": self.decoder.get_x_pred(),
+			"batch": self.encoder.get_batch(),
+			"batchr": self.decoder.get_batch_pred(),
 		}
 		return self.vars
 
@@ -46,7 +48,7 @@ class AutoEncoder(nn.Module):
 		xr = vars["xr"]
 		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
 		crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
-		loss = mse_loss + crossentropy_loss
+		loss = 100 * mse_loss + crossentropy_loss
 		corr = correlation(x[tgt_idx], xr[pred_idx])
 		return {
 			"loss": loss,
