@@ -83,10 +83,12 @@ class ObsEnv:
         edge_idx_obj = data[("agent", "observe", "object")].edge_index.T
         edge_idx_agent = data[("agent", "communicate", "agent")].edge_index.T
         obj_flat = data["object"].x
+        agent_pos = data["agent"].pos
         obj = scatter_nested(obj_flat, idxi=edge_idx_obj[:,0], idxj=edge_idx_obj[:,1])
         obj_idx = scatter_nested(edge_idx_obj[:,1], idxi=edge_idx_obj[:,0], idxj=torch.arange(edge_idx_obj.shape[0]))
         return {
             "obj_all": obj_flat,
+            "agent_pos": agent_pos,
             "obj": obj,
             "obj_idx": obj_idx,
             "edge_idx": edge_idx_agent,
@@ -107,6 +109,7 @@ class ObsEnv:
         cum_num_agents = torch.cat([torch.zeros(1), torch.cumsum(num_agents, dim=0)[:-1]], dim=0).int()
         num_objs = torch.tensor([data["obj_all"].shape[0] for data in datas])
         cum_num_objs = torch.cat([torch.zeros(1), torch.cumsum(num_objs, dim=0)[:-1]], dim=0).int()
+        agent_pos = torch.cat([data["agent_pos"] for data in datas], dim=0)
         edge_idxs = torch.cat([datas[i]["edge_idx"] + cum_num_agents[i] for i in range(len(datas))], dim=0)
         batch = torch.arange(len(datas)).repeat_interleave(num_agents)
         obj_all = torch.cat([data["obj_all"] for data in datas], dim=0)
@@ -118,6 +121,7 @@ class ObsEnv:
         obj_idx = torch.nested_tensor(obj_idx_list)
         return {
             "obj_all": obj_all,
+            "agent_pos": agent_pos,
             "obj": obj,
             "obj_idx": obj_idx,
             "edge_idx": edge_idxs,

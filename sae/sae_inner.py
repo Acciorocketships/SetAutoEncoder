@@ -1,7 +1,6 @@
 import torch
 from torch import nn
-from torch_scatter import scatter
-from torch_geometric.data import Data, Batch
+from sae.util import scatter
 from sae.mlp import build_mlp
 from sae.positional import PositionalEncoding
 from sae.loss import get_loss_idxs, correlation
@@ -85,7 +84,7 @@ class Encoder(nn.Module):
 		if batch is None:
 			batch = torch.zeros(x.shape[0])
 
-		n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum').long()  # batch_size
+		n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
 		ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
 		self.n = n
 
@@ -107,7 +106,7 @@ class Encoder(nn.Module):
 
 		y1 = self.enc_psi(xs) * self.pos_encoder(pos) # total_nodes x hidden_dim
 
-		y2 = scatter(src=y1, index=batch, dim=-2, reduce='sum') # batch_size x dim
+		y2 = scatter(src=y1, index=batch, dim=-2) # batch_size x dim
 
 		pos_n = self.pos_gen(n) # batch_size x max_n
 		y3 = torch.cat([y2, pos_n], dim=-1) # batch_size x (hidden_dim + max_n)
@@ -201,16 +200,18 @@ if __name__ == '__main__':
 	dec = Decoder(dim=dim)
 
 	data_list = []
+	batch_list = []
 	for i in range(batch_size):
 		n = torch.randint(low=1, high=max_n, size=(1,))
 		x = torch.randn(n[0], dim)
-		d = Data(x=x, y=x)
-		data_list.append(d)
-	data = Batch.from_data_list(data_list)
+		data_list.append(x)
+		batch_list.append(torch.ones(n) * i)
+	data = torch.cat(data_list, dim=0)
+	batch = torch.cat(batch_list, dim=0).int()
 
-	z = enc(data.x, data.batch)
+	z = enc(data, batch)
 	xr, batchr = dec(z)
 
-	print(data.x.shape, xr.shape)
-	print(data.batch.shape, batchr.shape)
+	print(x.shape, xr.shape)
+	print(batch.shape, batchr.shape)
 

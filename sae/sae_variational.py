@@ -1,7 +1,6 @@
 import torch
 from torch import nn
-from torch_scatter import scatter
-from torch_geometric.data import Data, Batch
+from sae.util import scatter
 from torch.distributions.normal import Normal
 from torch.distributions.kl import kl_divergence
 from sae.mlp import build_mlp
@@ -138,7 +137,7 @@ class Encoder(nn.Module):
 			batch = torch.zeros(x.shape[0])
 		self.batch = batch
 
-		n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum', dim_size=n_batches).long()  # batch_size
+		n = scatter(src=torch.ones(x.shape[0]), index=batch, dim_size=n_batches).long()  # batch_size
 		ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
 		self.n = n
 
@@ -160,7 +159,7 @@ class Encoder(nn.Module):
 
 		# Deepset
 		y1_ds = self.val_net_deepset(xs) * self.key_net_deepset(pos) # total_nodes x hidden_dim
-		y2_ds = scatter(src=y1_ds, index=batch, dim=-2, reduce='sum', dim_size=n_batches) # batch_size x dim
+		y2_ds = scatter(src=y1_ds, index=batch, dim=-2, dim_size=n_batches) # batch_size x dim
 		z_ds = self.encoder_deepset(y2_ds) # batch_size x hidden_dim
 		z_ds_rep = torch.repeat_interleave(z_ds, n, dim=0)
 
@@ -168,7 +167,7 @@ class Encoder(nn.Module):
 		x_in = torch.cat([xs, z_ds_rep], dim=1)
 		pos_in = torch.cat([pos, z_ds_rep], dim=1)
 		y1 = self.val_net_main(x_in) * self.key_net_main(pos_in)  # total_nodes x hidden_dim
-		y2 = scatter(src=y1, index=batch, dim=-2, reduce='sum', dim_size=n_batches)  # batch_size x dim
+		y2 = scatter(src=y1, index=batch, dim=-2, dim_size=n_batches)  # batch_size x dim
 		pos_n = self.pos_gen(n)  # batch_size x max_n
 		y3 = torch.cat([y2, pos_n], dim=-1)  # batch_size x (hidden_dim + max_n)
 		z = self.encoder_main(y3)  # batch_size x 2*hidden_dim
@@ -267,6 +266,7 @@ class Decoder(nn.Module):
 
 
 if __name__ == '__main__':
+
 	dim = 3
 	max_n = 5
 	batch_size = 16
@@ -275,16 +275,18 @@ if __name__ == '__main__':
 	dec = Decoder(dim=dim)
 
 	data_list = []
+	batch_list = []
 	for i in range(batch_size):
 		n = torch.randint(low=1, high=max_n, size=(1,))
 		x = torch.randn(n[0], dim)
-		d = Data(x=x, y=x)
-		data_list.append(d)
-	data = Batch.from_data_list(data_list)
+		data_list.append(x)
+		batch_list.append(torch.ones(n) * i)
+	data = torch.cat(data_list, dim=0)
+	batch = torch.cat(batch_list, dim=0).int()
 
-	z = enc(data.x, data.batch)
-	xr, batchr = dec(z)
+	z = enc(data, batch)
+	xr, batchr = dec(z[:,:,0])
 
-	print(data.x.shape, xr.shape)
-	print(data.batch.shape, batchr.shape)
+	print(x.shape, xr.shape)
+	print(batch.shape, batchr.shape)
 

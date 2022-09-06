@@ -1,11 +1,9 @@
 import torch
 from torch import nn
-from torch_scatter import scatter
-from torch_geometric.data import Data, Batch
+from sae.util import scatter
 from sae.positional import PositionalEncoding
 from sae.mlp import build_mlp
 from sae.loss import get_loss_idxs, correlation, fixed_order_loss, mean_squared_loss
-from torch.nn import CrossEntropyLoss
 
 
 class AutoEncoder(nn.Module):
@@ -60,14 +58,13 @@ class AutoEncoder(nn.Module):
         }
 
 
-
 class Encoder(nn.Module):
 
     def __init__(self, dim, hidden_dim=64, max_n=8, **kwargs):
         super().__init__()
         # Params
         self.input_dim = dim
-        self.weight_dim = int(hidden_dim**0.5)
+        self.weight_dim = int(hidden_dim ** 0.5)
         self.max_n = max_n + 1
         # Modules
         self.size_gen = PositionalEncoding(dim=self.max_n, mode='onehot')
@@ -94,7 +91,7 @@ class Encoder(nn.Module):
         x_packed = nn.utils.rnn.pack_sequence(x_list, enforce_sorted=False)
 
         _, z = self.rnn(x_packed)
-        z = z[0,:,:]
+        z = z[0, :, :]
 
         out = torch.cat([z, n.unsqueeze(-1)], dim=-1)
         return out
@@ -127,24 +124,23 @@ class Decoder(nn.Module):
         # Params
         self.output_dim = dim
         self.hidden_dim = hidden_dim
-        self.max_n = max_n+1
+        self.max_n = max_n + 1
         # Modules
         self.rnn = nn.GRU(input_size=hidden_dim, hidden_size=hidden_dim, batch_first=True, num_layers=1)
         self.mapping = build_mlp(input_dim=hidden_dim, output_dim=dim, nlayers=2)
 
-
     def forward(self, z):
         # z: batch_size x hidden_dim
-        n = z[:,-1].int()
-        z = z[:,:-1]
+        n = z[:, -1].int()
+        z = z[:, :-1]
         max_n = torch.max(n)
 
-        y_padded = torch.zeros(z.shape[0], max_n, self.hidden_dim) # B x N x D
-        hidden = z.unsqueeze(0) # 1 x B x K
-        curr = torch.zeros(z.shape[0], 1, self.hidden_dim) # B x 1 x D
+        y_padded = torch.zeros(z.shape[0], max_n, self.hidden_dim)  # B x N x D
+        hidden = z.unsqueeze(0)  # 1 x B x K
+        curr = torch.zeros(z.shape[0], 1, self.hidden_dim)  # B x 1 x D
         for i in range(max_n):
             curr, hidden = self.rnn(curr, hidden)
-            y_padded[:,i,:] = curr[:,0,:]
+            y_padded[:, i, :] = curr[:, 0, :]
 
         x_padded = self.mapping(y_padded)
 
@@ -181,7 +177,7 @@ class Decoder(nn.Module):
 
 if __name__ == '__main__':
 
-    dim = 4
+    dim = 3
     max_n = 5
     batch_size = 16
 
@@ -189,16 +185,17 @@ if __name__ == '__main__':
     dec = Decoder(dim=dim)
 
     data_list = []
+    batch_list = []
     for i in range(batch_size):
         n = torch.randint(low=1, high=max_n, size=(1,))
         x = torch.randn(n[0], dim)
-        d = Data(x=x, y=x)
-        data_list.append(d)
-    data = Batch.from_data_list(data_list)
+        data_list.append(x)
+        batch_list.append(torch.ones(n) * i)
+    data = torch.cat(data_list, dim=0)
+    batch = torch.cat(batch_list, dim=0).int()
 
-    z = enc(data.x, data.batch)
+    z = enc(data, batch)
     xr, batchr = dec(z)
 
-    print(data.x.shape, xr.shape)
-    print(data.batch.shape, batchr.shape)
-
+    print(x.shape, xr.shape)
+    print(batch.shape, batchr.shape)

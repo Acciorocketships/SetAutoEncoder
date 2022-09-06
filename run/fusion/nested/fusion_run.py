@@ -1,8 +1,7 @@
 import wandb
 from torch.optim import Adam
-from fusion_dataset import ObsEnv
-from fusion_model3 import FusionModel
-from visualiser3 import Visualiser
+from run.fusion.nested.fusion_dataset import ObsEnv
+from fusion_model import FusionModel
 
 
 project = "fusion"
@@ -11,7 +10,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"fusion3": {"log": False},
+		"fusion_nested": {"log": False},
 	}
 	default = {
 		"feat_dim": 4,
@@ -19,7 +18,7 @@ def experiments():
 		"batch_size": 64,
 		"epochs": 1000000,
 		"gnn_nlayers": 3,
-		"position": "abs",
+		"position": "rel",
 		"obs_range": 0.3,
 		"mean_objects": 10,
 	}
@@ -53,9 +52,7 @@ def run(
 
 	env = ObsEnv(feat_dim=feat_dim, pos_dim=pos_dim, mean_agents=mean_agents, mean_objects=mean_objects, **kwargs)
 
-	vis = Visualiser(visible=False)
-
-	model = FusionModel(input_dim=feat_dim, max_agents=2*mean_agents, max_obj=2*mean_objects, **kwargs)
+	model = FusionModel(input_dim=feat_dim+pos_dim, max_agents=2*mean_agents, max_obj=2*mean_objects, **kwargs)
 	optim = Adam(model.parameters())
 
 	i = 0

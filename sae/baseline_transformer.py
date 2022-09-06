@@ -1,10 +1,8 @@
 import torch
 from torch import nn
-from torch_scatter import scatter
-from torch_geometric.data import Data, Batch
+from sae.util import scatter
 from sae.positional import PositionalEncoding
 from sae.loss import get_loss_idxs, correlation, fixed_order_loss, mean_squared_loss
-from torch.nn import CrossEntropyLoss
 
 
 class AutoEncoder(nn.Module):
@@ -80,7 +78,7 @@ class Encoder(nn.Module):
         if batch is None:
             batch = torch.zeros(x.shape[0])
 
-        n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum').long()  # batch_size
+        n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
         self.n = n
         self.x = x
         self.batch = batch
@@ -185,7 +183,7 @@ class Decoder(nn.Module):
 
 if __name__ == '__main__':
 
-    dim = 4
+    dim = 3
     max_n = 5
     batch_size = 16
 
@@ -193,16 +191,18 @@ if __name__ == '__main__':
     dec = Decoder(dim=dim)
 
     data_list = []
+    batch_list = []
     for i in range(batch_size):
         n = torch.randint(low=1, high=max_n, size=(1,))
         x = torch.randn(n[0], dim)
-        d = Data(x=x, y=x)
-        data_list.append(d)
-    data = Batch.from_data_list(data_list)
+        data_list.append(x)
+        batch_list.append(torch.ones(n) * i)
+    data = torch.cat(data_list, dim=0)
+    batch = torch.cat(batch_list, dim=0).int()
 
-    z = enc(data.x, data.batch)
+    z = enc(data, batch)
     xr, batchr = dec(z)
 
-    print(data.x.shape, xr.shape)
-    print(data.batch.shape, batchr.shape)
+    print(x.shape, xr.shape)
+    print(batch.shape, batchr.shape)
 
