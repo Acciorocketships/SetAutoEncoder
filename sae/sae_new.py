@@ -149,6 +149,9 @@ class Encoder(nn.Module):
 		'Returns: the number of elements per batch (shape: batch)'
 		return self.n
 
+	def get_max_n(self):
+		return self.max_n-1
+
 
 
 class Decoder(nn.Module):

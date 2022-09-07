@@ -60,9 +60,14 @@ def nested_to_batch(nested, return_sizes=False):
 		return flat, batch
 
 def permute_nested(nt, perm):
+	dim0_size = size_nested(nt, dim=0)
 	x_flat, sizes = nested_to_batch(nt, return_sizes=True)
+	batch = torch.arange(dim0_size).repeat_interleave(sizes)
+	if perm.is_nested:
+		perm, _ = nested_to_batch(perm, return_sizes=True)
 	x_perm = x_flat[perm]
-	return create_nested(x_perm, sizes)
+	batch = batch[perm]
+	return create_nested_batch(x_perm, batch, dim_size=dim0_size)
 
 def create_nested(x, sizes):
 	return torch.nested_tensor(torch.split(x, sizes.tolist()))

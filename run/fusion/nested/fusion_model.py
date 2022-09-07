@@ -1,8 +1,6 @@
-import torch
 from torch import nn
 from sae import AutoEncoderNew
 from fusion_gnn import Encoder, Decoder, MergeGNN
-from sae.util import *
 
 
 class FusionModel(nn.Module):
@@ -23,9 +21,6 @@ class FusionModel(nn.Module):
 		obj_idx = data["obj_idx"]
 		agent_pos = data["agent_pos"]
 		edge_idx = data["edge_idx"]
-		n_agents = shape_nested(obj_idx)
-		print("n_agents", n_agents)
-		print("max edge_idx", torch.max(edge_idx))
 
 		# Encoder
 		encoder_input = {
@@ -36,15 +31,20 @@ class FusionModel(nn.Module):
 		encoder_output = self.encoder(**encoder_input)
 
 		# Merge GNN
-		layer_output = {
-			"edge_index": edge_idx,
-			"pos": agent_pos,
-			**encoder_output,
-		}
+		layer_output = encoder_output
 		layer_outputs = []
 		for layer in range(self.gnn_nlayers):
-			layer_output = self.merge_gnn(**layer_output)
+			layer_input = {
+				"edge_index": edge_idx,
+				"pos": agent_pos,
+				**layer_output,
+			}
+			layer_output = self.merge_gnn(**layer_input)
 			layer_outputs.append(layer_output)
+
+		decoder_output = self.decoder(**layer_output)
+
+		return decoder_output
 
 
 	def loss(self):
