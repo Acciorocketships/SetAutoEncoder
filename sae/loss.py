@@ -1,6 +1,6 @@
 import torch
 import numpy as np
-from torch_scatter import scatter
+from sae.util import scatter
 from torch.nn.functional import cross_entropy, mse_loss
 from scipy.optimize import linear_sum_assignment
 
@@ -62,7 +62,7 @@ def correlation(x1, x2):
 
 
 def batch_to_set_lens(batch, batch_size=None):
-    return scatter(src=torch.ones(batch.shape), index=batch, dim_size=batch_size, reduce='sum').long()
+    return scatter(src=torch.ones(batch.shape), index=batch, dim_size=batch_size).long()
 
 
 def min_permutation_idxs(yhat, y, batch, loss_fn=cross_entropy_loss):
@@ -105,7 +105,10 @@ def fixed_order_idxs(y, batch, order_fn=lambda y: y.float() @ torch.arange(1,y.s
 
 
 def fixed_order_loss(y, yhat, batch, loss_fn=cross_entropy_loss, order_fn=None):
-    y_perm = fixed_order_idxs(y=y, batch=batch, order_fn=order_fn)
+    if order_fn is None:
+        y_perm = slice(None)
+    else:
+        y_perm = fixed_order_idxs(y=y, batch=batch, order_fn=order_fn)
     y_ord = y[y_perm]
     # yhat_ord = yhat[y_perm]
     loss = torch.mean(loss_fn(yhat, y_ord))

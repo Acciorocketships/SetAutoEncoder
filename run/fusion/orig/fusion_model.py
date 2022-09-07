@@ -36,8 +36,8 @@ class FusionModel(nn.Module):
 		)
 		for i in range(self.gnn_nlayers):
 			layers.append(merge_gnn_layer)
-			signatures.append("x, edge_index, pos -> x")
-		gnn = Sequential("x, edge_index, pos", zip(layers, signatures))
+			signatures.append("x, edge_index, *args, **kwargs -> x")
+		gnn = Sequential("x, edge_index, *args, **kwargs", zip(layers, signatures))
 		gnn.reset_values = gnn[0].reset_values
 		gnn.get_values = gnn[0].get_values
 		return gnn
@@ -57,13 +57,19 @@ class FusionModel(nn.Module):
 
 		self.enc = self.encode_gnn(x=obj_x, edge_index=obj_agent_edge_index, posx=obj_pos, posa=agent_pos)
 
-		self.merge_gnn[0].values["perm_output"].append(self.encode_gnn.x_perm)
-		self.merge_gnn[0].values["batch_output"].append(obj_agent_edge_index[0, self.encode_gnn.x_perm])
-		self.merge_gnn[0].values["obj_idx"].append(obj_agent_edge_index[1, self.encode_gnn.x_perm])
+		obj_idx = obj_agent_edge_index[1, self.encode_gnn.x_perm]
+		agent_idx = obj_agent_edge_index[0, self.encode_gnn.x_perm]
+		n_agents = obj_x.shape[0]
+		obj_idx_nested = torch.nested_tensor([obj_idx[agent_idx==i] for i in range(n_agents)])
+		# x_nested = torch.nested_tensor([self.encode_gnn.input[agent_idx==i] for i in range(n_agents)])
+
+		self.merge_gnn[0].values["obj_idx"].append(obj_idx)
+		self.merge_gnn[0].values["batch_output"].append(agent_idx)
 		self.merge_gnn[0].values["n_output"].append(obj_per_agent_obs)
 		self.merge_gnn[0].values["x_output"].append(self.encode_gnn.input)
+		self.merge_gnn[0].values["perm_output"].append(self.encode_gnn.x_perm)
 
-		self.merged = self.merge_gnn(x=self.enc, edge_index=agent_edge_index, pos=agent_pos)
+		self.merged = self.merge_gnn(x=self.enc, edge_index=agent_edge_index, pos=agent_pos, obj_idx=obj_idx_nested)
 
 		self.decoded, self.batch = self.decoder(self.merged)
 

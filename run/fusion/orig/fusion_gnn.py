@@ -77,32 +77,13 @@ class MergeGNN(MessagePassing):
 
 	def forward(self, x: Tensor, edge_index: Tensor, pos: Tensor, obj_idx: Optional[Tensor] = None):
 		edge_index = self.sort_edge_index(edge_index)
-		self.edge_index = edge_index
-		self.pos = pos
-		self.x = x
 		self.set_decoder_preds(x, edge_index)
+		self.obj_idx = obj_idx
 		return self.propagate(x=x, edge_index=edge_index, pos=pos, idx=torch.arange(pos.shape[0]).unsqueeze(1), size=(x.shape[0], x.shape[0]))
 
 	def sort_edge_index(self, edge_index): # TODO: is this necessary?
 		perm = torch.argsort(edge_index[1, :], stable=True)
 		return edge_index[:,perm]
-
-	def forward_true(self, x: Tensor, agent_idx: Tensor, obj_idx: Tensor, edge_index: Tensor, pos: Tensor):
-		edge_index = self.sort_edge_index(edge_index)
-		edge_data = self.agents_to_edges(x=x, agent_idx=agent_idx, edge_index=edge_index, obj_idx=obj_idx)
-		xe = edge_data["x"]
-		agente_idx = edge_data["agent_idx"]
-		srce_idx = edge_data["agent_src_idx"]
-		obje_idx = edge_data["obj_idx"]
-		pos_i = pos[srce_idx, :]
-		pos_j = pos[agente_idx, :]
-		if self.position == 'rel':
-			xe = self.update_rel_pos(xe, pos_i, pos_j)
-		mask = self.filter_duplicates(xe, agente_idx)
-		x_new = xe[mask,:]
-		agent_idx_new = agente_idx[mask]
-		obj_idx_new = obje_idx[mask]
-		return x_new, agent_idx_new, obj_idx_new
 
 	def agents_to_edges(self, x, agent_idx, edge_index, obj_idx=None):
 		# input: x, data for a variable number of objects for each agent
@@ -157,8 +138,14 @@ class MergeGNN(MessagePassing):
 		self.values["x_pred"].append(decoded)
 		self.values["batch_pred"].append(decoded_batch)
 
+	def set_obj_idxs(self, obj_idxs, idx_i, idx_j, decoded, decoded_batch):
+		obj_idx_edge = torch.nested_tensor([])
+		breakpoint()
+
+
 	def message(self, x_j: Tensor, pos_i: Tensor, pos_j: Tensor, idx_i: Tensor, idx_j: Tensor) -> Tensor:  # pos_j: edge_index[0,:], pos_i: edge_index[1,:]
 		decoded, decoded_batch = self.input_decoder(x_j) # = self.input_decoder(x[edge_index[1,:],:])
+		# self.set_obj_idxs(obj_idxs=self.obj_idx, idx_i=idx_i, idx_j=idx_j, decoded=decoded, decoded_batch=decoded_batch)
 		if self.position == 'rel':
 			ope = scatter(src=torch.ones(decoded_batch.shape[0]), index=decoded_batch, dim_size=idx_i.shape[0]).long()
 			pos_i_exp = pos_i.repeat_interleave(ope, dim=0)

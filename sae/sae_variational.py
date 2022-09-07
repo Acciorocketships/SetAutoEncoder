@@ -1,10 +1,13 @@
 import torch
 from torch import nn
 from sae.util import scatter
+from torch.distributions.normal import Normal
+from torch.distributions.kl import kl_divergence
 from sae.mlp import build_mlp
 from sae.positional import PositionalEncoding
 from sae.loss import get_loss_idxs, correlation
 from torch.nn import CrossEntropyLoss
+
 
 
 class AutoEncoder(nn.Module):
@@ -19,7 +22,18 @@ class AutoEncoder(nn.Module):
 
 	def forward(self, x, batch=None):
 		z = self.encoder(x, batch)
-		xr, batchr = self.decoder(z)
+		mu = z[:,:,0]
+		sigma = z[:,:,1]
+		dist = Normal(mu, sigma)
+		sample = dist.rsample()
+		xr, batchr = self.decoder(sample)
+		self.dist = dist
+		return xr, batchr
+
+	def forward_det(self, x, batch=None):
+		z = self.encoder(x, batch)
+		mu = z[:, :, 0]
+		xr, batchr = self.decoder(mu)
 		return xr, batchr
 
 	def get_vars(self):
@@ -27,8 +41,11 @@ class AutoEncoder(nn.Module):
 			"n_pred_logits": self.decoder.get_n_pred_logits(),
 			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
+			"x_perm_idx": self.encoder.get_x_perm(),
 			"x": self.encoder.get_x(),
+			"batch": self.encoder.get_batch(),
 			"xr": self.decoder.get_x_pred(),
+			"dist": self.dist,
 		}
 		return self.vars
 
@@ -39,18 +56,44 @@ class AutoEncoder(nn.Module):
 		'''
 		if vars is None:
 			vars = self.get_vars()
+
 		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
 		x = vars["x"]
 		xr = vars["xr"]
+		batch = vars["batch"]
 		mse_loss = torch.nn.functional.mse_loss(x[tgt_idx], xr[pred_idx])
 		crossentropy_loss = CrossEntropyLoss()(vars["n_pred_logits"], vars["n"])
-		loss = 100 * mse_loss + crossentropy_loss
+
+		dist = vars["dist"]
+		normaldist = Normal(loc=torch.zeros_like(dist.loc), scale=torch.ones_like(dist.scale))
+		kl = torch.mean(kl_divergence(dist, normaldist)) * 0.1
+
+		loss = mse_loss + crossentropy_loss + kl
+
 		corr = correlation(x[tgt_idx], xr[pred_idx])
+
+		xr_det, _ = self.forward_det(x, batch)
+		n_pred_det = self.decoder.get_n_pred()
+		n_det = self.encoder.get_n()
+		pred_idx_det, tgt_idx_det = get_loss_idxs(n_pred_det, n_det)
+		corr_det = correlation(x[tgt_idx_det], xr_det[pred_idx_det])
+
+		mu_mean = torch.mean(vars["dist"].loc)
+		mu_var = torch.var(vars["dist"].loc)
+		sigma_mean = torch.mean(vars["dist"].scale)
+		sigma_var = torch.var(vars["dist"].scale)
+
 		return {
 			"loss": loss,
 			"crossentropy_loss": crossentropy_loss,
 			"mse_loss": mse_loss,
 			"corr": corr,
+			"corr_det": corr_det,
+			"kl": kl,
+			"mu_mean": mu_mean,
+			"mu_var": mu_var,
+			"sigma_mean": sigma_mean,
+			"sigma_var": sigma_var,
 		}
 
 
@@ -78,6 +121,8 @@ class Encoder(nn.Module):
 		self.key_net_main = build_mlp(input_dim=self.max_n+self.deepset_dim, output_dim=self.hidden_dim, nlayers=self.nlayers_keynet, midmult=1.,layernorm=True, nonlinearity=self.nonlinearity)
 		self.val_net_main = build_mlp(input_dim=self.input_dim+self.deepset_dim, output_dim=self.hidden_dim, nlayers=self.nlayers_valnet, midmult=1.,layernorm=True, nonlinearity=self.nonlinearity)
 		self.encoder_main = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=self.nlayers_encoder, midmult=1., layernorm=self.layernorm, nonlinearity=self.nonlinearity)
+		self.mu_net = build_mlp(input_dim=hidden_dim, output_dim=hidden_dim, nlayers=2, layernorm=True, nonlinearity=nn.Tanh)
+		self.sigma_net = build_mlp(input_dim=hidden_dim, output_dim=hidden_dim, nlayers=2, layernorm=True, nonlinearity=nn.Sigmoid)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
 
 	def sort(self, x):
@@ -125,33 +170,30 @@ class Encoder(nn.Module):
 		y2 = scatter(src=y1, index=batch, dim=-2, dim_size=n_batches)  # batch_size x dim
 		pos_n = self.pos_gen(n)  # batch_size x max_n
 		y3 = torch.cat([y2, pos_n], dim=-1)  # batch_size x (hidden_dim + max_n)
-		z = self.encoder_main(y3)  # batch_size x hidden_dim
-		self.z = z
-		return z
+		z = self.encoder_main(y3)  # batch_size x 2*hidden_dim
+
+		# Distribution
+		out = torch.zeros(z.shape[0], self.hidden_dim, 2)
+		out[:,:,0] = self.mu_net(z)
+		out[:,:,1] = torch.abs(self.sigma_net(z))
+
+		return out
 
 	def get_x_perm(self):
 		'Returns: the permutation applied to the inputs (shape: ninputs)'
 		return self.xs_idx
-
-	def get_z(self):
-		'Returns: the latent state (shape: batch x hidden_dim)'
-		return self.z
 
 	def get_batch(self):
 		'Returns: the batch idxs of the inputs (shape: ninputs)'
 		return self.batch
 
 	def get_x(self):
-		'Returns: the sorted inputs, x[x_perm] (shape: ninputs x dim)'
+		'Returns: the sorted inputs, x[x_perm] (shape: ninputs x d)'
 		return self.xs
 
 	def get_n(self):
 		'Returns: the number of elements per batch (shape: batch)'
 		return self.n
-
-	def get_max_n(self):
-		return self.max_n-1
-
 
 
 class Decoder(nn.Module):
@@ -243,7 +285,7 @@ if __name__ == '__main__':
 	batch = torch.cat(batch_list, dim=0).int()
 
 	z = enc(data, batch)
-	xr, batchr = dec(z)
+	xr, batchr = dec(z[:,:,0])
 
 	print(x.shape, xr.shape)
 	print(batch.shape, batchr.shape)
