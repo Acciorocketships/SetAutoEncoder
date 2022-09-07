@@ -87,3 +87,12 @@ def truncate_nested(nt, sizes, dim=1):
 				torch.full(size=size_update(xi.shape, max(size-xi.shape[dim], 0)), fill_value=torch.nan)
 			], dim=dim)
 		for (xi, size) in zip(nt.unbind(), sizes)])
+
+
+def combine_dicts(dict_list):
+	keys = dict_list[0].keys()
+	return {
+		key:
+			sum([dict_list[i][key] for i in range(len(dict_list))]) / len(dict_list)
+		for key in keys
+	}

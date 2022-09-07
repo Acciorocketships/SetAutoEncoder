@@ -104,7 +104,7 @@ class MergeGNN(MessagePassing):
 			classes_flat = self.filter(xi_mat_flat)
 			classes.append(classes_flat)
 		classes = torch.cat(classes, dim=0)
-		labels = torch.cat(labels, dim=0)
+		labels = torch.cat(labels, dim=0).long()
 		self.filter_training_data = {
 			"classes": classes,
 			"labels": labels,
