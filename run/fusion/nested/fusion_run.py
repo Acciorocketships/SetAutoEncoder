@@ -1,8 +1,10 @@
+import torch
 import wandb
 from torch.optim import Adam
 from run.fusion.nested.fusion_dataset import ObsEnv
 from fusion_model import FusionModel
 
+torch.manual_seed(0)
 
 project = "fusion"
 
