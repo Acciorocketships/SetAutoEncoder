@@ -76,7 +76,7 @@ class Encoder(nn.Module):
         if batch is None:
             batch = torch.zeros(x.shape[0])
 
-        n = scatter(src=torch.ones(x.shape[0]), index=batch, reduce='sum').long()  # batch_size
+        n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
         self.n = n
         self.x = x
         self.batch = batch

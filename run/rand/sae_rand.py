@@ -1,8 +1,8 @@
 import torch
 from torch.optim import Adam
-from torch_geometric.data import Data, Batch
 import wandb
 import inspect
+import traceback
 from sae import AutoEncoderInner, AutoEncoderNew, AutoEncoderVariational
 from sae import get_loss_idxs, correlation
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
@@ -16,12 +16,11 @@ project = "sae-rand"
 
 def experiments():
 	trials = {
-		# "rnn": {"model": AutoEncoderRNN, "log": True},
-		# "transformer": {"model": AutoEncoderTransformer, "log": True},
-		"tspn": {"model": AutoEncoderTSPN, "log": True},
+		"rnn": [{"model": AutoEncoderRNN}, {"model": AutoEncoderRNN, "hidden_dim": 32}],
+		"transformer": [{"model": AutoEncoderTransformer}, {"model": AutoEncoderTransformer, "hidden_dim": 32}],
+		"tspn": [{"model": AutoEncoderTSPN}, {"model": AutoEncoderTSPN, "hidden_dim": 32}],
+		"sae": [{"model": AutoEncoderNew}, {"model": AutoEncoderNew, "hidden_dim": 32}],
 		# "variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
-		# "new": {"model": AutoEncoderNew},
-		# "inner": {"model": AutoEncoderInner},
 	}
 	default = {
 		"dim": 4,
@@ -30,13 +29,27 @@ def experiments():
 		"epochs": 25000,
 		"load": False,
 		"log": True,
+		"runs": 10,
+		"retries": 3,
 	}
-	for name, cfg in trials.items():
-		config = default.copy()
-		config.update(cfg)
-		config["name"] = name
-		config["model_path"] = model_path_base.format(name=name)
-		run(**config)
+	for name, trial in trials.items():
+		if not isinstance(trial, list):
+			trial = [trial]
+		for cfg in trial:
+			config = default.copy()
+			config.update(cfg)
+			config["name"] = name
+			config["model_path"] = model_path_base.format(name=name)
+			for run_num in range(config["runs"]):
+				for retry in range(1,config["retries"]+1):
+					try:
+						run(**config)
+						break
+					except Exception as e:
+						print("Trial {retry} failed:".format(retry=retry))
+						print(traceback.format_exc())
+						if retry < config["retries"]:
+							print("Retrying...")
 
 
 def run(
@@ -79,14 +92,17 @@ def run(
 	for t in range(epochs):
 
 		data_list = []
+		size_list = []
 		for i in range(batch_size):
 			n = torch.randint(low=1, high=max_n, size=(1,))
 			x = torch.randn(n[0], dim)
-			d = Data(x=x)
-			data_list.append(d)
-		data = Batch.from_data_list(data_list)
+			data_list.append(x)
+			size_list.append(n)
+		data = torch.cat(data_list, dim=0)
+		sizes = torch.cat(size_list, dim=0)
+		batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
 
-		xr, _ = model(data.x, data.batch)
+		xr, _ = model(data, batch)
 
 		loss_data = model.loss()
 		loss = loss_data["loss"]
