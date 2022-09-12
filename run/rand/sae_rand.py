@@ -3,28 +3,32 @@ from torch.optim import Adam
 import wandb
 import inspect
 import traceback
-from sae import AutoEncoderInner, AutoEncoderNew, AutoEncoderVariational
+from sae import AutoEncoderNew, AutoEncoderVariational
 from sae import get_loss_idxs, correlation
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
+from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
 from sae.baseline_transformer import AutoEncoder as AutoEncoderTransformer
 from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
+from visualiser import Visualiser
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}.pt"
 
-project = "sae-rand"
+project = "sae-rand-test"
 
 def experiments():
 	trials = {
-		"rnn": [{"model": AutoEncoderRNN}, {"model": AutoEncoderRNN, "hidden_dim": 32}],
-		"transformer": [{"model": AutoEncoderTransformer}, {"model": AutoEncoderTransformer, "hidden_dim": 32}],
-		"tspn": [{"model": AutoEncoderTSPN}, {"model": AutoEncoderTSPN, "hidden_dim": 32}],
+		# "sae": [{"model": AutoEncoderNew}, {"model": AutoEncoderNew, "hidden_dim": 32}],
+		# "rnn": [{"model": AutoEncoderRNN}, {"model": AutoEncoderRNN, "hidden_dim": 32}],
+		# "transformer": [{"model": AutoEncoderTransformer}, {"model": AutoEncoderTransformer, "hidden_dim": 32}],
+		# "tspn_fs": [{"model": AutoEncoderTSPN}, {"model": AutoEncoderTSPN, "hidden_dim": 32}],
+		# "dspn": [{"model": AutoEncoderDSPN}, {"model": AutoEncoderDSPN, "hidden_dim": 32}],
 		"sae": [{"model": AutoEncoderNew}, {"model": AutoEncoderNew, "hidden_dim": 32}],
 		# "variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
 	}
 	default = {
-		"dim": 4,
-		"hidden_dim": 64,
+		"dim": 6,
+		"hidden_dim": 96,
 		"max_n": 16,
 		"epochs": 25000,
 		"load": False,
@@ -79,6 +83,7 @@ def run(
 			group=name,
 			config=config,
 		)
+		vis = Visualiser(visible=False)
 
 	optim = Adam(model.parameters())
 
@@ -98,11 +103,11 @@ def run(
 			x = torch.randn(n[0], dim)
 			data_list.append(x)
 			size_list.append(n)
-		data = torch.cat(data_list, dim=0)
+		x = torch.cat(data_list, dim=0)
 		sizes = torch.cat(size_list, dim=0)
 		batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
 
-		xr, _ = model(data, batch)
+		xr, batchr = model(x, batch)
 
 		loss_data = model.loss()
 		loss = loss_data["loss"]
@@ -117,10 +122,21 @@ def run(
 		corr = correlation(var["x"][tgt_idx], var["xr"][pred_idx])
 
 		if log:
-			wandb.log({
+			log_data = {
 				**loss_data,
 				"corr": corr,
-			})
+			}
+
+			if t % 10 == 0:
+				x0 = x[batch==0]
+				xr0 = xr[batchr==0]
+				vis.reset()
+				vis.show_objects(xr0)
+				vis.show_objects(x0, alpha=0.5, line={"dash": "dot"})
+				plt = vis.render()
+				log_data["visualisation"] = plt
+
+			wandb.log(log_data)
 
 	if load:
 		try:

@@ -1,8 +1,7 @@
 import torch
 from torch import nn
-from sae.util import scatter
 from sae.mlp import build_mlp
-from sae.positional import PositionalEncoding
+from sae.baseline_dspn import Encoder
 from sae.loss import get_loss_idxs, correlation, min_permutation_idxs, mean_squared_loss
 from torch.nn import CrossEntropyLoss
 
@@ -61,70 +60,6 @@ class AutoEncoder(nn.Module):
 			"mse_loss": mse_loss,
 			"corr": corr,
 		}
-
-
-
-class Encoder(nn.Module):
-
-	def __init__(self, dim, hidden_dim=64, max_n=8, **kwargs):
-		super().__init__()
-		# Params
-		self.input_dim = dim
-		self.hidden_dim = hidden_dim
-		self.max_n = max_n + 1
-		self.layernorm = kwargs.get("layernorm_encoder", False)
-		self.nonlinearity = kwargs.get("activation_encoder", nn.Tanh)
-		# Modules
-		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=kwargs.get('pe', 'onehot'))
-		self.enc_psi = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=self.nonlinearity)
-		self.enc_phi = build_mlp(input_dim=self.hidden_dim+self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=self.layernorm, nonlinearity=self.nonlinearity)
-		self.rank = torch.nn.Linear(self.input_dim, 1)
-
-	def sort(self, x):
-		mag = self.rank(x).reshape(-1)
-		_, idx = torch.sort(mag, dim=0)
-		return x[idx], idx
-
-	def forward(self, x, batch=None):
-		# x: n x input_dim
-		_, input_dim = x.shape
-		if batch is None:
-			batch = torch.zeros(x.shape[0])
-
-		n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
-		self.n = n
-		self.x = x
-		self.batch = batch
-
-		y1 = self.enc_psi(x) # total_nodes x hidden_dim
-
-		y2 = scatter(src=y1, index=batch, dim=-2) # batch_size x dim
-
-		pos_n = self.pos_gen(n) # batch_size x max_n
-		y3 = torch.cat([y2, pos_n], dim=-1) # batch_size x (hidden_dim + max_n)
-
-		z = self.enc_phi(y3) # batch_size x hidden_dim
-		return z
-
-	def get_x_perm(self):
-		'Returns: the permutation applied to the inputs (shape: ninputs)'
-		return torch.arange(self.x.shape[0])
-
-	def get_z(self):
-		'Returns: the latent state (shape: batch x hidden_dim)'
-		return self.z
-
-	def get_batch(self):
-		'Returns: the batch idxs of the inputs (shape: ninputs)'
-		return self.batch
-
-	def get_x(self):
-		'Returns: the sorted inputs, x[x_perm] (shape: ninputs x d)'
-		return self.x
-
-	def get_n(self):
-		'Returns: the number of elements per batch (shape: batch)'
-		return self.n
 
 
 class Decoder(nn.Module):
@@ -208,12 +143,13 @@ class Decoder(nn.Module):
 
 if __name__ == '__main__':
 
-	dim = 3
+	dim = 4
 	max_n = 5
 	batch_size = 16
 
-	enc = Encoder(dim=dim)
-	dec = Decoder(dim=dim)
+	# enc = Encoder(dim=dim)
+	# dec = Decoder(dim=dim)
+	ae = AutoEncoder(dim=dim, max_n=max_n)
 
 	data_list = []
 	batch_list = []
@@ -222,12 +158,15 @@ if __name__ == '__main__':
 		x = torch.randn(n[0], dim)
 		data_list.append(x)
 		batch_list.append(torch.ones(n) * i)
-	data = torch.cat(data_list, dim=0)
+	x = torch.cat(data_list, dim=0)
 	batch = torch.cat(batch_list, dim=0).int()
 
-	z = enc(data, batch)
-	xr, batchr = dec(z)
+	xr, batchr = ae(x, batch)
 
 	print(x.shape, xr.shape)
 	print(batch.shape, batchr.shape)
+
+	loss = ae.loss()
+
+	breakpoint()
 
