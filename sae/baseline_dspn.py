@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import scipy
 from sae.util import scatter
 from sae.loss import get_loss_idxs, correlation, min_permutation_idxs, mean_squared_loss
 
@@ -26,6 +27,10 @@ class AutoEncoder(nn.Module):
 			"batch": self.encoder.get_batch(),
 			"x": self.encoder.get_x(),
 			"xr": self.decoder.get_x_pred(),
+			"xmat": self.encoder.get_xmat(),
+			"xmatr": self.decoder.get_xmat(),
+			"mask": self.encoder.get_mask(),
+			"maskr": self.decoder.get_mask(),
 			"repr_loss": self.decoder.get_repr_loss(),
 		}
 		return self.vars
@@ -37,6 +42,23 @@ class AutoEncoder(nn.Module):
 		'''
 		if vars is None:
 			vars = self.get_vars()
+
+		target_set = vars["xmat"]
+		target_mask = vars["mask"]
+		pred_set = vars["xmatr"]
+		pred_mask = vars["maskr"]
+
+		target_set = torch.cat(
+			[target_set, target_mask.unsqueeze(dim=-1)], dim=-1
+		)
+		pred_set = torch.cat(
+			[pred_set, pred_mask.unsqueeze(dim=-1)], dim=-1
+		)
+
+		set_loss = hungarian_loss(pred_set.permute(0,2,1), target_set.permute(0,2,1)).unsqueeze(0)
+
+		loss = set_loss.mean()
+
 		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
 		x = vars["x"][tgt_idx]
 		xr = vars["xr"][pred_idx]
@@ -47,15 +69,11 @@ class AutoEncoder(nn.Module):
 			batch=batch,
 			loss_fn=mean_squared_loss,
 		)
+		vars["perm"] = perm
 		xr = xr[perm]
-		mse_loss = torch.mean(mean_squared_loss(x, xr))
-		repr_loss = vars["repr_loss"]
-		loss = mse_loss + repr_loss
 		corr = correlation(x, xr)
 		return {
 			"loss": loss,
-			"repr_loss": repr_loss,
-			"mse_loss": mse_loss,
 			"corr": corr,
 		}
 
@@ -63,11 +81,12 @@ class AutoEncoder(nn.Module):
 
 class Encoder(nn.Module):
 
-	def __init__(self, dim, hidden_dim=64, **kwargs):
+	def __init__(self, dim, hidden_dim, max_n, **kwargs):
 		super().__init__()
 		# Params
 		self.input_dim = dim
 		self.hidden_dim = hidden_dim
+		self.max_n = max_n
 		self.encoder = FSEncoder(input_channels=dim, output_channels=hidden_dim)
 
 	def forward(self, x, batch=None):
@@ -82,13 +101,14 @@ class Encoder(nn.Module):
 		self.x = x
 		self.batch = batch
 
-		max_n = torch.max(n)
-		xmat = torch.zeros(n.shape[0], max_n, self.input_dim)
-		mask = torch.zeros(n.shape[0], max_n).bool()
+		xmat = torch.zeros(n.shape[0], self.max_n, self.input_dim)
+		mask = torch.zeros(n.shape[0], self.max_n).bool()
 		ptr = torch.cat([torch.zeros(1), torch.cumsum(n, dim=0)], dim=0).int()
 		for i in range(n.shape[0]):
 			xmat[i, :n[i], :] = x[ptr[i]:ptr[i + 1], :]
 			mask[i, :n[i]] = True
+		self.mask = mask
+		self.xmat = xmat
 
 		xmat = xmat.permute(0,2,1)
 		z = self.encoder(xmat, mask)
@@ -102,6 +122,12 @@ class Encoder(nn.Module):
 	def get_z(self):
 		'Returns: the latent state (shape: batch x hidden_dim)'
 		return self.z
+
+	def get_mask(self):
+		return self.mask
+
+	def get_xmat(self):
+		return self.xmat
 
 	def get_batch(self):
 		'Returns: the batch idxs of the inputs (shape: ninputs)'
@@ -154,6 +180,12 @@ class Decoder(nn.Module):
 	def get_repr_loss(self):
 		return self.decoder.get_loss()
 
+	def get_xmat(self):
+		return self.decoder.get_pred_iter()[-1].permute(0,2,1)
+
+	def get_mask(self):
+		return self.decoder.get_mask_iter()[-1]
+
 
 class DSPN(nn.Module):
 	""" Deep Set Prediction Networks
@@ -161,7 +193,7 @@ class DSPN(nn.Module):
 	https://arxiv.org/abs/1906.06565
 	"""
 
-	def __init__(self, encoder, set_channels, max_set_size, iters=10, lr=800):
+	def __init__(self, encoder, set_channels, max_set_size, iters=30, lr=800):
 		"""
 		encoder: Set encoder module that takes a set as input and returns a representation thereof.
 			It should have a forward function that takes two arguments:
@@ -245,10 +277,18 @@ class DSPN(nn.Module):
 			grad_norms.append(set_grad.norm())
 
 		self.repr_losses = repr_losses
+		self.pred_iter = intermediate_sets
+		self.mask_iter = intermediate_masks
 		return intermediate_sets[-1], intermediate_masks[-1]
 
 	def get_loss(self):
 		return sum(self.repr_losses)
+
+	def get_pred_iter(self):
+		return self.pred_iter
+
+	def get_mask_iter(self):
+		return self.mask_iter
 
 
 class FSEncoder(nn.Module):
@@ -418,6 +458,37 @@ def cont_sort(x, perm=None, temp=1):
 	x = perm.matmul(x)
 	x = x.view(original_size)
 	return x, perm
+
+
+def hungarian_loss(predictions, targets):
+	# predictions and targets shape :: (n, c, s)
+	predictions, targets = outer(predictions, targets)
+	# squared_error shape :: (n, s, s)
+	squared_error = torch.nn.functional.smooth_l1_loss(predictions, targets, reduction="none").mean(1)
+
+	squared_error_np = squared_error.detach().cpu().numpy()
+	indices = [hungarian_loss_per_sample(squared_error_np[i]) for i in range(squared_error_np.shape[0])]
+	losses = [
+		sample[row_idx, col_idx].mean()
+		for sample, (row_idx, col_idx) in zip(squared_error, indices)
+	]
+	total_loss = torch.mean(torch.stack(list(losses)))
+	return total_loss
+
+
+def hungarian_loss_per_sample(sample_np):
+	return scipy.optimize.linear_sum_assignment(sample_np)
+
+
+def outer(a, b=None):
+	""" Compute outer product between a and b (or a and a if b is not specified). """
+	if b is None:
+		b = a
+	size_a = tuple(a.size()) + (b.size()[-1],)
+	size_b = tuple(b.size()) + (a.size()[-1],)
+	a = a.unsqueeze(dim=-1).expand(*size_a)
+	b = b.unsqueeze(dim=-2).expand(*size_b)
+	return a, b
 
 
 if __name__ == '__main__':

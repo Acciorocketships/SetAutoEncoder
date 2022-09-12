@@ -3,7 +3,7 @@ from torch.optim import Adam
 import wandb
 import inspect
 import traceback
-from sae import AutoEncoderNew, AutoEncoderVariational
+from sae import AutoEncoderNew
 from sae import get_loss_idxs, correlation
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
 from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
@@ -14,17 +14,20 @@ from visualiser import Visualiser
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}.pt"
 
-project = "sae-rand-test"
+project = "sae-rand-exp"
 
 def experiments():
 	trials = {
-		# "sae": [{"model": AutoEncoderNew}, {"model": AutoEncoderNew, "hidden_dim": 32}],
-		# "rnn": [{"model": AutoEncoderRNN}, {"model": AutoEncoderRNN, "hidden_dim": 32}],
-		# "transformer": [{"model": AutoEncoderTransformer}, {"model": AutoEncoderTransformer, "hidden_dim": 32}],
-		# "tspn_fs": [{"model": AutoEncoderTSPN}, {"model": AutoEncoderTSPN, "hidden_dim": 32}],
-		# "dspn": [{"model": AutoEncoderDSPN}, {"model": AutoEncoderDSPN, "hidden_dim": 32}],
-		"sae": [{"model": AutoEncoderNew}, {"model": AutoEncoderNew, "hidden_dim": 32}],
-		# "variational-kl": {"model": AutoEncoderVariational, "log": True, "hidden_dim": 64},
+		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderDSPN, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderDSPN, "hidden_dim": 48, "runs": 9}],
+		"sae": [{"model": AutoEncoderNew, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderNew, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderNew, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderNew, "hidden_dim": 48, "runs": 9}],
+		"rnn": [{"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderRNN, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderRNN, "hidden_dim": 48, "runs": 9}],
+		"transformer": [{"model": AutoEncoderTransformer, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderTransformer, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderTransformer, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderTransformer, "hidden_dim": 48, "runs": 9}],
+		"tspn": [{"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderTSPN, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderTSPN, "hidden_dim": 48, "runs": 9}],
+		# "sae": [{"model": AutoEncoderNew}],
+		# "rnn": [{"model": AutoEncoderRNN}],
+		# "transformer": [{"model": AutoEncoderTransformer}],
+		# "tspn_fs": [{"model": AutoEncoderTSPN}],
+		# "dspn": [{"model": AutoEncoderDSPN}],
 	}
 	default = {
 		"dim": 6,
@@ -32,8 +35,9 @@ def experiments():
 		"max_n": 16,
 		"epochs": 25000,
 		"load": False,
+		"save": False,
 		"log": True,
-		"runs": 10,
+		"runs": 1,
 		"retries": 3,
 	}
 	for name, trial in trials.items():
@@ -66,6 +70,7 @@ def run(
 			model = None,
 			name = None,
 			load = False,
+			save = False,
 			log = True,
 			**kwargs,
 		):
@@ -138,7 +143,7 @@ def run(
 
 			wandb.log(log_data)
 
-	if load:
+	if save:
 		try:
 			model_state_dict = model.state_dict()
 			torch.save(model_state_dict, model_path)
