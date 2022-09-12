@@ -71,9 +71,11 @@ class AutoEncoder(nn.Module):
 		)
 		vars["perm"] = perm
 		xr = xr[perm]
+		mse_loss = torch.mean(mean_squared_loss(x, xr))
 		corr = correlation(x, xr)
 		return {
 			"loss": loss,
+			"mse_loss": mse_loss,
 			"corr": corr,
 		}
 
