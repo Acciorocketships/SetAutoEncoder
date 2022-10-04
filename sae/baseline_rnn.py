@@ -74,16 +74,16 @@ class Encoder(nn.Module):
         # x: n x input_dim
         _, input_dim = x.shape
         if batch is None:
-            batch = torch.zeros(x.shape[0])
+            batch = torch.zeros(x.shape[0], device=x.device)
 
-        n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
+        n = scatter(src=torch.ones(x.shape[0], device=x.device), index=batch).long()  # batch_size
         self.n = n
         self.x = x
         self.batch = batch
 
         max_n = torch.max(n)
-        mask = torch.zeros(n.shape[0], max_n).bool()
-        ptr = torch.cat([torch.zeros(1), torch.cumsum(n, dim=0)], dim=0).int()
+        mask = torch.zeros(n.shape[0], max_n, device=x.device).bool()
+        ptr = torch.cat([torch.zeros(1, device=x.device), torch.cumsum(n, dim=0)], dim=0).int()
         x_list = [None] * n.shape[0]
         for i in range(n.shape[0]):
             x_list[i] = x[ptr[i]:ptr[i + 1], :]
@@ -135,23 +135,23 @@ class Decoder(nn.Module):
         z = z[:, :-1]
         max_n = torch.max(n)
 
-        y_padded = torch.zeros(z.shape[0], max_n, self.hidden_dim)  # B x N x D
-        hidden = z.unsqueeze(0)  # 1 x B x K
-        curr = torch.zeros(z.shape[0], 1, self.hidden_dim)  # B x 1 x D
+        y_padded = torch.zeros(z.shape[0], max_n, self.hidden_dim, device=z.device)  # B x N x D
+        hidden = z.unsqueeze(0).contiguous()  # 1 x B x K
+        curr = torch.zeros(z.shape[0], 1, self.hidden_dim, device=z.device)  # B x 1 x D
         for i in range(max_n):
             curr, hidden = self.rnn(curr, hidden)
             y_padded[:, i, :] = curr[:, 0, :]
 
         x_padded = self.mapping(y_padded)
 
-        mask = torch.zeros(n.shape[0], max_n).bool()
+        mask = torch.zeros(n.shape[0], max_n, device=z.device).bool()
         for i in range(n.shape[0]):
             mask[i, :n[i]] = True
         mask_flat = mask.view(n.shape[0] * max_n)
         x_flat_padded = x_padded.view(n.shape[0] * max_n, self.output_dim)
         x = x_flat_padded[mask_flat, :]
 
-        batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
+        batch = torch.repeat_interleave(torch.arange(n.shape[0], device=z.device), n, dim=0)
         self.batch = batch
         self.x = x
         self.n = n

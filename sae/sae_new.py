@@ -89,11 +89,11 @@ class Encoder(nn.Module):
 		# x: n x input_dim
 		_, input_dim = x.shape
 		if batch is None:
-			batch = torch.zeros(x.shape[0])
+			batch = torch.zeros(x.shape[0], device=x.device)
 		self.batch = batch
 
-		n = scatter(src=torch.ones(x.shape[0]), index=batch, dim_size=n_batches).long()  # batch_size
-		ptr = torch.cumsum(torch.cat([torch.zeros(1), n]), dim=0).int()
+		n = scatter(src=torch.ones(x.shape[0], device=x.device), index=batch, dim_size=n_batches).long()  # batch_size
+		ptr = torch.cumsum(torch.cat([torch.zeros(1, device=x.device), n]), dim=0).int()
 		self.n = n
 
 		# Zip set start and ends
@@ -105,11 +105,11 @@ class Encoder(nn.Module):
 			xs_idx.append(idx_sorted + i)
 		xs = torch.cat(xs, dim=0) # total_nodes x input_dim
 		xs_idx = torch.cat(xs_idx, dim=0)
-		self.xs_idx_rev = torch.empty_like(xs_idx).scatter_(0, xs_idx, torch.arange(xs_idx.numel()))
+		self.xs_idx_rev = torch.empty_like(xs_idx, device=x.device).scatter_(0, xs_idx, torch.arange(xs_idx.numel(), device=x.device))
 		self.xs = xs
 		self.xs_idx = xs_idx
 
-		keys = torch.cat([torch.arange(ni) for ni in n], dim=0).int() # batch_size]
+		keys = torch.cat([torch.arange(ni, device=x.device) for ni in n], dim=0).int() # batch_size]
 		pos = self.pos_gen(keys) # batch_size x hidden_dim
 
 		# Deepset
@@ -186,7 +186,7 @@ class Decoder(nn.Module):
 		self.n_pred_logits = n_logits
 		self.n_pred = n
 
-		k = torch.cat([torch.arange(ni) for ni in n], dim=0)
+		k = torch.cat([torch.arange(ni, device=z.device) for ni in n], dim=0)
 		pos = self.pos_gen(k) # total_nodes x max_n
 
 		keys = self.key_net(pos)
@@ -199,7 +199,7 @@ class Decoder(nn.Module):
 		zp = vals_rep * keys
 
 		x = self.decoder(zp)
-		batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
+		batch = torch.repeat_interleave(torch.arange(n.shape[0], device=z.device), n, dim=0)
 
 		self.x = x
 		self.batch = batch

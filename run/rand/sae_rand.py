@@ -18,16 +18,11 @@ project = "sae-rand-exp"
 
 def experiments():
 	trials = {
-		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderDSPN, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderDSPN, "hidden_dim": 48, "runs": 9}],
+		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 48, "runs": 9}],
 		"sae": [{"model": AutoEncoderNew, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderNew, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderNew, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderNew, "hidden_dim": 48, "runs": 9}],
 		"rnn": [{"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderRNN, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderRNN, "hidden_dim": 48, "runs": 9}],
 		"transformer": [{"model": AutoEncoderTransformer, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderTransformer, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderTransformer, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderTransformer, "hidden_dim": 48, "runs": 9}],
 		"tspn": [{"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 1, "save": True}, {"model": AutoEncoderTSPN, "hidden_dim": 48, "runs": 1, "save": True}, {"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 9}, {"model": AutoEncoderTSPN, "hidden_dim": 48, "runs": 9}],
-		# "sae": [{"model": AutoEncoderNew}],
-		# "rnn": [{"model": AutoEncoderRNN}],
-		# "transformer": [{"model": AutoEncoderTransformer}],
-		# "tspn_fs": [{"model": AutoEncoderTSPN}],
-		# "dspn": [{"model": AutoEncoderDSPN}],
 	}
 	default = {
 		"dim": 6,
@@ -38,7 +33,7 @@ def experiments():
 		"save": False,
 		"log": True,
 		"runs": 1,
-		"retries": 3,
+		"retries": 1,
 	}
 	for name, trial in trials.items():
 		if not isinstance(trial, list):
@@ -78,6 +73,12 @@ def run(
 	if inspect.isclass(model):
 		model = model(dim=dim, hidden_dim=hidden_dim, max_n=max_n, **kwargs)
 
+	device = "cpu"
+	if torch.cuda.is_available():
+		device = "cuda:0"
+
+	model = model.to(device=device)
+
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
 
@@ -112,6 +113,9 @@ def run(
 		sizes = torch.cat(size_list, dim=0)
 		batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
 
+		x = x.to(device)
+		batch = batch.to(device)
+
 		xr, batchr = model(x, batch)
 
 		loss_data = model.loss()
@@ -136,8 +140,8 @@ def run(
 				x0 = x[batch==0]
 				xr0 = xr[batchr==0]
 				vis.reset()
-				vis.show_objects(xr0)
-				vis.show_objects(x0, alpha=0.5, line={"dash": "dot"})
+				vis.show_objects(xr0.cpu().detach())
+				vis.show_objects(x0.cpu().detach(), alpha=0.5, line={"dash": "dot"})
 				plt = vis.render()
 				log_data["visualisation"] = plt
 

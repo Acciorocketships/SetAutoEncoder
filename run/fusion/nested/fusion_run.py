@@ -12,7 +12,7 @@ project = "fusion"
 
 def experiments():
 	trials = {
-		"fusion_nested": {"log": False},
+		"fusion_nested": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,

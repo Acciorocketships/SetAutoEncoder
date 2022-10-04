@@ -102,10 +102,10 @@ class Decoder(nn.Module):
 		sample_dist = torch.distributions.Normal(loc=self.init_mu, scale=torch.abs(self.init_sigma))
 		x0 = sample_dist.rsample(sample_shape=(num_outputs,))
 		rep_z = torch.repeat_interleave(z, n, dim=0)
-		ptr = torch.cat([torch.zeros(1), torch.cumsum(n, dim=0)], dim=0).int()
+		ptr = torch.cat([torch.zeros(1, device=z.device), torch.cumsum(n, dim=0)], dim=0).int()
 		max_n = torch.max(n)
-		x0z = torch.zeros(z.shape[0], max_n, self.output_dim + self.hidden_dim)
-		mask = torch.zeros(z.shape[0], max_n).bool()
+		x0z = torch.zeros(z.shape[0], max_n, self.output_dim + self.hidden_dim, device=z.device)
+		mask = torch.zeros(z.shape[0], max_n, device=z.device).bool()
 		for i in range(n.shape[0]):
 			x0z[i, :n[i], :self.output_dim] = x0[ptr[i]:ptr[i + 1], :]
 			x0z[i, :n[i], self.output_dim:] = rep_z[ptr[i]:ptr[i + 1], :]
@@ -118,7 +118,7 @@ class Decoder(nn.Module):
 		mask_flat = mask.view(z.shape[0] * max_n)
 		x = x_padded_flat[mask_flat,:]
 
-		batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
+		batch = torch.repeat_interleave(torch.arange(n.shape[0], device=z.device), n, dim=0)
 		self.batch = batch
 		self.x = x
 		return x, batch

@@ -21,6 +21,7 @@ class PositionalEncoding(nn.Module):
 
 	def onehot(self, x: Tensor) -> Tensor:
 		out_shape = list(x.shape) + [self.dim]
+		self.I = self.I.to(x.device)
 		return torch.index_select(input=self.I, dim=0, index=x.reshape(-1)).reshape(*out_shape)
 
 	def binary(self, x: Tensor) -> Tensor:
@@ -45,9 +46,9 @@ class PositionalEncoding(nn.Module):
 
 	def sinusoid(self, x: Tensor):
 		max_n = torch.max(x)+1
-		pe = torch.zeros(max_n, self.dim)  # like 10x4
-		position = torch.arange(0, max_n, dtype=torch.float).unsqueeze(1)
-		div_term = torch.exp(torch.arange(0, self.dim, 2).float() * (-math.log(10000.0) / self.dim))
+		pe = torch.zeros(max_n, self.dim, device=x.device)  # like 10x4
+		position = torch.arange(0, max_n, dtype=torch.float, device=x.device).unsqueeze(1)
+		div_term = torch.exp(torch.arange(0, self.dim, 2, device=x.device).float() * (-math.log(10000.0) / self.dim))
 		pe[:, 0::2] = torch.sin(position * div_term)
 		pe[:, 1::2] = torch.cos(position * div_term)
 		return pe

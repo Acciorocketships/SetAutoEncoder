@@ -96,16 +96,16 @@ class Encoder(nn.Module):
 		# x: n x input_dim
 		_, input_dim = x.shape
 		if batch is None:
-			batch = torch.zeros(x.shape[0])
+			batch = torch.zeros(x.shape[0], device=x.device)
 
-		n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
+		n = scatter(src=torch.ones(x.shape[0], device=x.device), index=batch).long()  # batch_size
 		self.n = n
 		self.x = x
 		self.batch = batch
 
-		xmat = torch.zeros(n.shape[0], self.max_n, self.input_dim)
-		mask = torch.zeros(n.shape[0], self.max_n).bool()
-		ptr = torch.cat([torch.zeros(1), torch.cumsum(n, dim=0)], dim=0).int()
+		xmat = torch.zeros(n.shape[0], self.max_n, self.input_dim, device=x.device)
+		mask = torch.zeros(n.shape[0], self.max_n, device=x.device).bool()
+		ptr = torch.cat([torch.zeros(1, device=x.device), torch.cumsum(n, dim=0)], dim=0).int()
 		for i in range(n.shape[0]):
 			xmat[i, :n[i], :] = x[ptr[i]:ptr[i + 1], :]
 			mask[i, :n[i]] = True
@@ -156,7 +156,7 @@ class Decoder(nn.Module):
 		xr, mask = self.decoder(z)
 		xr = xr.permute(0,2,1)
 		mask_binary = mask > 0.5
-		batch = torch.arange(xr.shape[0]).unsqueeze(1).expand(-1, xr.shape[1])
+		batch = torch.arange(xr.shape[0], device=z.device).unsqueeze(1).expand(-1, xr.shape[1])
 		xr_flat = xr.reshape(xr.shape[0] * xr.shape[1], xr.shape[2])
 		batch_flat = batch.reshape(batch.shape[0] * batch.shape[1])
 		mask_flat = mask_binary.view(mask.shape[0] * mask.shape[1])

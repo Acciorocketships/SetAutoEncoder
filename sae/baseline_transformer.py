@@ -76,22 +76,22 @@ class Encoder(nn.Module):
         # x: n x input_dim
         _, input_dim = x.shape
         if batch is None:
-            batch = torch.zeros(x.shape[0])
+            batch = torch.zeros(x.shape[0], device=x.device)
 
-        n = scatter(src=torch.ones(x.shape[0]), index=batch).long()  # batch_size
+        n = scatter(src=torch.ones(x.shape[0], device=x.device), index=batch).long()  # batch_size
         self.n = n
         self.x = x
         self.batch = batch
 
         max_n = torch.max(n)
-        xmat = torch.zeros(n.shape[0], max_n, self.input_dim)
-        mask = torch.zeros(n.shape[0], max_n).bool()
-        ptr = torch.cat([torch.zeros(1), torch.cumsum(n, dim=0)], dim=0).int()
+        xmat = torch.zeros(n.shape[0], max_n, self.input_dim, device=x.device)
+        mask = torch.zeros(n.shape[0], max_n, device=x.device).bool()
+        ptr = torch.cat([torch.zeros(1, device=x.device), torch.cumsum(n, dim=0)], dim=0).int()
         for i in range(n.shape[0]):
             xmat[i, :n[i], :] = x[ptr[i]:ptr[i + 1], :]
             mask[i, :n[i]] = True
 
-        pos = self.pos_gen(torch.arange(max_n)).unsqueeze(0)
+        pos = self.pos_gen(torch.arange(max_n, device=x.device)).unsqueeze(0)
         xpos = xmat + pos
 
         yk = self.Wk(xpos) * mask.unsqueeze(-1)
@@ -144,11 +144,11 @@ class Decoder(nn.Module):
         z = z[:,:-1]
         max_n = torch.max(n)
 
-        mask = torch.zeros(n.shape[0], max_n).bool()
+        mask = torch.zeros(n.shape[0], max_n, device=z.device).bool()
         for i in range(n.shape[0]):
             mask[i,:n[i]] = True
 
-        pos = self.pos_gen(torch.arange(max_n))
+        pos = self.pos_gen(torch.arange(max_n, device=z.device))
         query = self.Wq(pos).unsqueeze(0).expand(n.shape[0], -1, -1) # B x N x sqrt(K)
         z_mat = z.view(n.shape[0], self.weight_dim, self.weight_dim)
         decoded = torch.matmul(query, z_mat)
@@ -157,7 +157,7 @@ class Decoder(nn.Module):
         mask_flat = mask.view(n.shape[0] * max_n)
         x = x_flat_padded[mask_flat,:]
 
-        batch = torch.repeat_interleave(torch.arange(n.shape[0]), n, dim=0)
+        batch = torch.repeat_interleave(torch.arange(n.shape[0], device=z.device), n, dim=0)
         self.batch = batch
         self.x = x
         self.n = n
