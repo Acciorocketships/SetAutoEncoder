@@ -6,13 +6,13 @@ from fusion_model import FusionModel
 from visualiser import Visualiser
 
 
-project = "fusion"
+project = "fusion_test"
 
 ## Run
 
 def experiments():
 	trials = {
-		"vanilla": {"log": True},
+		"new": {"log": True},
 	}
 	default = {
 		"feat_dim": 4,

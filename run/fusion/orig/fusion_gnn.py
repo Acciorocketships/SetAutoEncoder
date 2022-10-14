@@ -3,7 +3,7 @@ from torch import Tensor
 import torch
 from torch_geometric.nn import MessagePassing
 from typing import Optional
-from sae import EncoderNew, DecoderNew
+from sae.sae_psi import Encoder, Decoder
 from sae.mlp import build_mlp
 
 
@@ -13,7 +13,7 @@ class EncodeGNN(MessagePassing):
 		self.input_dim = in_channels
 		self.output_dim = out_channels
 		self.position = position
-		self.encoder = EncoderNew(dim=self.input_dim, hidden_dim=self.output_dim, max_n=max_obj)
+		self.encoder = Encoder(dim=self.input_dim, hidden_dim=self.output_dim, max_n=max_obj)
 
 	def forward(self, x: Tensor, edge_index: Tensor, posx: Tensor, posa: Tensor):
 		edge_index = edge_index.flip(dims=(0,)) # switch from (agents -> objects) to (objects -> agents)
@@ -50,8 +50,8 @@ class MergeGNN(MessagePassing):
 		self.pos_dim = 2 if position is not None else 0
 		self.orig_dim = orig_dim
 		self.position = position
-		self.input_decoder = DecoderNew(hidden_dim=self.input_dim, dim=self.orig_dim, max_n=max_obj)
-		self.merge_encoder = EncoderNew(dim=self.orig_dim, hidden_dim=self.output_dim, max_n=max_obj)
+		self.input_decoder = Decoder(hidden_dim=self.input_dim, dim=self.orig_dim, max_n=max_obj)
+		self.merge_encoder = Encoder(dim=self.orig_dim, hidden_dim=self.output_dim, max_n=max_obj)
 		self.filter = FilterModel(input_dim=self.orig_dim, hidden_dim=self.orig_dim)
 		self.reset_values()
 

@@ -15,7 +15,7 @@ class MergeGNN(MessagePassing):
 		self.autoencoder = autoencoder
 		self.decoder = autoencoder.decoder
 		self.encoder = autoencoder.encoder
-		self.filter = FilterModel(input_dim=self.encoder.input_dim, hidden_dim=self.encoder.input_dim)
+		self.filter = FilterModel2(input_dim=self.encoder.input_dim, hidden_dim=self.encoder.input_dim)
 		self.max_n = self.encoder.get_max_n()
 
 	def forward(self, z: Tensor, edge_index: Tensor, **kwargs):
@@ -36,6 +36,9 @@ class MergeGNN(MessagePassing):
 		x_flat, batch = nested_to_batch(xr_masked)
 		num_agents = size_nested(xr_masked, dim=0).item()
 		z = self.encoder(x_flat, batch, n_batches=num_agents)
+		# Permute Obj Idx
+		perm = self.encoder.get_x_perm()
+		obj_idx = permute_nested(obj_idx_masked, perm)
 		# Return
 		return {
 			"z": z,
@@ -183,8 +186,8 @@ class FilterModel(torch.nn.Module):
 		super().__init__()
 		self.input_dim = input_dim
 		self.hidden_dim = hidden_dim
-		self.pre_mlp = build_mlp(input_dim=input_dim, output_dim=hidden_dim, nlayers=2)
-		self.post_mlp = build_mlp(input_dim=hidden_dim, output_dim=2, nlayers=2)
+		self.pre_mlp = build_mlp(input_dim=input_dim, output_dim=hidden_dim, nlayers=2, layernorm=True)
+		self.post_mlp = build_mlp(input_dim=hidden_dim, output_dim=2, nlayers=2, layernorm=True)
 
 	def forward(self, x):
 		x1 = x[:,:self.input_dim]
@@ -194,3 +197,14 @@ class FilterModel(torch.nn.Module):
 		b = a1 * a2
 		c = self.post_mlp(b)
 		return c
+
+
+class FilterModel2(torch.nn.Module):
+
+	def __init__(self, input_dim, **kwargs):
+		super().__init__()
+		self.input_dim = input_dim
+		self.mlp = build_mlp(input_dim=2*input_dim, output_dim=2, nlayers=3, layernorm=True, nonlinearity=torch.nn.Tanh)
+
+	def forward(self, x):
+		return self.mlp(x)

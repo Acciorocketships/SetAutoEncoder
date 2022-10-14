@@ -59,6 +59,9 @@ def nested_to_batch(nested, return_sizes=False):
 		batch = torch.arange(len(tensor_list)).repeat_interleave(sizes)
 		return flat, batch
 
+def index_with_nested(src, index, dim=0):
+	return torch.nested_tensor([select_index(src=src, idx=idxi.long(), dim=dim) for idxi in index.unbind()])
+
 def permute_nested(nt, perm):
 	if perm.is_nested:
 		return torch.nested_tensor([xi[permi] for xi, permi in zip(nt.unbind(), perm.unbind())])
@@ -159,3 +162,9 @@ def sum_nested(input, dim):
 		return torch.stack(x, dim=0)
 	else:
 		return torch.nested_tensor(x)
+
+
+def select_index(src, idx, dim):
+	idx_list = [slice(None)] * len(src.shape)
+	idx_list[dim] = idx
+	return src.__getitem__(idx_list)

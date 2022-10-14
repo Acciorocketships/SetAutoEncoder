@@ -245,8 +245,8 @@ class DSPN(nn.Module):
 			# regardless of grad setting in train or eval, each iteration requires torch.autograd.grad to be used
 			with torch.enable_grad():
 				if not self.training:
-					current_set.requires_grad = True
-					current_mask.requires_grad = True
+					current_set.requires_grad_(True)
+					current_mask.requires_grad_(True)
 
 				# compute representation of current set
 				predicted_repr = self.encoder(current_set, current_mask)

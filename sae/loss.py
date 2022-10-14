@@ -77,7 +77,7 @@ def min_permutation_idxs(yhat, y, batch, loss_fn=cross_entropy_loss):
         yhati_rep = yhati.repeat((size, 1))
         yi_rep = yi.repeat_interleave(size, dim=0)
         loss_pairwise = loss_fn(yhati_rep, yi_rep).view(size, size) # loss_pairwise[i,j] = loss_fn(yhati[j], yi[i])
-        assignment = linear_sum_assignment(loss_pairwise.detach().cpu().numpy()) # lin_sum_ass(-Cost) calculates the min assignment, given as (row_idxs, col_idxs)
+        assignment = linear_sum_assignment(loss_pairwise.detach().cpu().numpy()) # lin_sum_ass(Cost) calculates the min assignment, given as (row_idxs, col_idxs)
         perm[idx_start:idx_end] = torch.tensor(assignment[1], device=perm.device) + idx_start
     return perm
 

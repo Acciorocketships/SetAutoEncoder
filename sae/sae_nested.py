@@ -18,9 +18,17 @@ class AutoEncoder(nn.Module):
 		self.decoder = Decoder(*args, **kwargs)
 
 	def forward(self, x, batch=None):
-		z = self.encoder(x, batch)
-		xr, batchr = self.decoder(z)
-		return xr, batchr
+		return_nested = True
+		if (not x.is_nested) and (batch is not None):
+			x = create_nested_batch(x, batch)
+			return_nested = False
+		z = self.encoder(x)
+		xr = self.decoder(z)
+		if return_nested:
+			return xr
+		else:
+			xr, batchr = nested_to_batch(xr)
+			return xr, batchr
 
 	def get_vars(self):
 		self.vars = {
@@ -165,6 +173,7 @@ class Decoder(nn.Module):
 
 		x = self.decoder(zp)
 
+		self.x = x
 		return x
 
 	def get_x_pred(self):

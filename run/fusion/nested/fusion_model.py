@@ -1,13 +1,13 @@
 import torch
 from torch import nn
-from sae import AutoEncoderNew
+from sae.sae_new import AutoEncoder
 from sae.loss import cross_entropy_loss
 from sae.util import combine_dicts
 from fusion_gnn import Encoder, Decoder, MergeGNN
 
 
 class FusionModel(nn.Module):
-	def __init__(self, input_dim, embedding_dim=64, autoencoder=AutoEncoderNew, gnn_nlayers=1, max_obj=16, position='rel', **kwargs):
+	def __init__(self, input_dim, embedding_dim=96, autoencoder=AutoEncoder, gnn_nlayers=1, max_obj=16, position='rel', **kwargs):
 		super().__init__()
 		self.gnn_nlayers = gnn_nlayers
 		self.max_obj = max_obj
@@ -28,6 +28,7 @@ class FusionModel(nn.Module):
 		# Training Data
 		self.ae_train_data = []
 		self.filter_train_data = []
+		self.model_inputs = []
 
 		# Encoder
 		encoder_input = {
@@ -46,6 +47,7 @@ class FusionModel(nn.Module):
 				**layer_output,
 			}
 			layer_output = self.merge_gnn(**layer_input)
+			self.model_inputs.append(layer_input)
 			self.ae_train_data.append(self.merge_gnn.get_autoencoder_training_data())
 			self.filter_train_data.append(self.merge_gnn.get_filter_training_data())
 
@@ -58,8 +60,8 @@ class FusionModel(nn.Module):
 	def loss(self):
 		autoencoder_loss = self.autoencoder_loss()
 		filter_loss = self.filter_loss()
-		loss = autoencoder_loss["loss"]
-		# loss = filter_loss["loss"] + autoencoder_loss["loss"]
+		# loss = autoencoder_loss["loss"]
+		loss = filter_loss["loss"] + autoencoder_loss["loss"]
 		autoencoder_loss["autoencoder loss"] = autoencoder_loss["loss"]
 		filter_loss["filter loss"] = filter_loss["loss"]
 		del autoencoder_loss["loss"]

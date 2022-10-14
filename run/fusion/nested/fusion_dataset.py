@@ -39,7 +39,8 @@ class ObsEnv:
             num_seen_by = (obs_dist < self.obs_range).sum(dim=0) # number of agents that see each object (size: n_objects)
             object_pos = object_pos[num_seen_by>0]
             n_objects = object_pos.shape[0]
-        # Creat Graph
+
+        # Create Graph
         object_features = torch.randn(n_objects, self.feat_dim)
         agent_edges = radius_graph(agent_pos, r=self.com_range, loop=True)
         obs_edges = radius(object_pos, agent_pos, r=self.obs_range)
@@ -106,9 +107,11 @@ class ObsEnv:
         num_objs = torch.tensor([data["obj_all"].shape[0] for data in datas])
         cum_num_objs = torch.cat([torch.zeros(1), torch.cumsum(num_objs, dim=0)[:-1]], dim=0).int()
         agent_pos = torch.cat([data["agent_pos"] for data in datas], dim=0)
+        agent_env = torch.nested_tensor([torch.arange(data["agent_pos"].shape[0]) + cum_num_agents[i] for i, data in enumerate(datas)])
         edge_idxs = torch.cat([datas[i]["edge_idx"] + cum_num_agents[i] for i in range(len(datas))], dim=0)
         batch = torch.arange(len(datas)).repeat_interleave(num_agents)
         obj_all = torch.cat([data["obj_all"] for data in datas], dim=0)
+        obj_env = torch.nested_tensor([torch.arange(data["obj_all"].shape[0]) + cum_num_objs[i] for i, data in enumerate(datas)])
         obj_list = sum([list(data["obj"].unbind()) for data in datas], [])
         obj = torch.nested_tensor(obj_list)
         obj_idx_list = sum([list(data["obj_idx"].unbind()) for data in datas], [])
@@ -117,9 +120,11 @@ class ObsEnv:
         obj_idx = torch.nested_tensor(obj_idx_list)
         return {
             "obj_all": obj_all,
+            "obj_env": obj_env, # indexes. nested. shape=(batch, num objs per env [variable])
+            "agent_env": agent_env, # indexes. nested. shape=(batch, num agents per env [variable])
             "agent_pos": agent_pos,
-            "obj": obj,
-            "obj_idx": obj_idx,
+            "obj": obj, # nested. shape=(num agents, num objs seen by agents [variable], dim size)
+            "obj_idx": obj_idx, # indexes. nested. shape=(num agents, num objs seen by agents [variable])
             "edge_idx": edge_idxs,
             "batch": batch,
         }

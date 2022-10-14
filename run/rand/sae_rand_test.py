@@ -5,22 +5,16 @@ import inspect
 import traceback
 from sae import get_loss_idxs, correlation
 from sae.sae_new import AutoEncoder
-from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
-from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
-from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
 from visualiser import Visualiser
 
 torch.set_printoptions(precision=2, sci_mode=False)
-model_path_base="saved/sae_rand-{name}-{hidden_dim}.pt"
+model_path_base="saved/sae_rand-{name}.pt"
 
-project = "sae-rand-exp"
+project = "sae-rand-test"
 
 def experiments():
 	trials = {
-		"sae": [{"model": AutoEncoder, "hidden_dim": 96, "runs": 1, "save": True}],
-		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": True}],
-		"rnn": [{"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 1, "save": True}],
-		"tspn": [{"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 1, "save": True}],
+		"sae-1e3": [{"model": AutoEncoder, "hidden_dim": 96, "runs": 1, "log": True}],
 	}
 	default = {
 		"dim": 6,
@@ -29,7 +23,7 @@ def experiments():
 		"epochs": 25000,
 		"load": False,
 		"save": False,
-		"log": True,
+		"log": False,
 		"runs": 1,
 		"retries": 1,
 	}
@@ -40,7 +34,7 @@ def experiments():
 			config = default.copy()
 			config.update(cfg)
 			config["name"] = name
-			config["model_path"] = model_path_base.format(name=name, hidden_dim=config["hidden_dim"])
+			config["model_path"] = model_path_base.format(name=name)
 			for run_num in range(config["runs"]):
 				for retry in range(1,config["retries"]+1):
 					try:
@@ -59,7 +53,7 @@ def run(
 			max_n = 16,
 			epochs = 100000,
 			batch_size = 64,
-			model_path = None,
+			model_path = model_path_base.format(name="base"),
 			model = None,
 			name = None,
 			load = False,
