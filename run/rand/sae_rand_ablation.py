@@ -8,17 +8,17 @@ from sae.sae_ablation import AutoEncoder as AutoEncoderAblation
 from visualiser import Visualiser
 
 torch.set_printoptions(precision=2, sci_mode=False)
-model_path_base="saved/sae_rand-{name}.pt"
+model_path_base="saved/ablation-{name}-{hidden_dim}.pt"
 
 project = "sae-rand-ablation"
 
 def experiments():
 	trials = {
-		"sae": [{"model": AutoEncoderAblation, "runs": 10}],
-		"sae-nocontext": [{"model": AutoEncoderAblation, "runs": 10, "ablation_context": True}],
-		"sae-nosort": [{"model": AutoEncoderAblation, "runs": 10, "ablation_sort": True}],
-		"sae-hungarian": [{"model": AutoEncoderAblation, "runs": 10, "ablation_hungarian": True}],
-		"sae-deepset": [{"model": AutoEncoderAblation, "runs": 10, "ablation_deepset": True}],
+		# "sae": [{"model": AutoEncoderAblation, "hidden_dim": 48}, {"model": AutoEncoderAblation, "hidden_dim": 96}],
+		# "sae-nocontext": [{"model": AutoEncoderAblation, "hidden_dim": 48, "ablation_context": True}, {"model": AutoEncoderAblation, "hidden_dim": 96, "ablation_context": True}],
+		# "sae-nosort": [{"model": AutoEncoderAblation, "hidden_dim": 48, "ablation_sort": True}, {"model": AutoEncoderAblation, "hidden_dim": 96, "ablation_sort": True}],
+		# "sae-hungarian": [{"model": AutoEncoderAblation, "hidden_dim": 48, "ablation_hungarian": True}, {"model": AutoEncoderAblation, "hidden_dim": 96, "ablation_hungarian": True}],
+		"sae-deepset": [{"model": AutoEncoderAblation, "hidden_dim": 48, "ablation_deepset": True}, {"model": AutoEncoderAblation, "hidden_dim": 96, "ablation_deepset": True}],
 	}
 	default = {
 		"dim": 6,
@@ -26,9 +26,9 @@ def experiments():
 		"max_n": 16,
 		"epochs": 25000,
 		"load": False,
-		"save": False,
+		"save": True,
 		"log": True,
-		"runs": 1,
+		"runs": 10,
 		"retries": 1,
 	}
 	for name, trial in trials.items():
@@ -38,7 +38,7 @@ def experiments():
 			config = default.copy()
 			config.update(cfg)
 			config["name"] = name
-			config["model_path"] = model_path_base.format(name=name)
+			config["model_path"] = model_path_base.format(name=name, hidden_dim=config["hidden_dim"])
 			for run_num in range(config["runs"]):
 				for retry in range(1,config["retries"]+1):
 					try:
@@ -57,7 +57,7 @@ def run(
 			max_n = 16,
 			epochs = 100000,
 			batch_size = 64,
-			model_path = model_path_base.format(name="base"),
+			model_path = "noname.pt",
 			model = None,
 			name = None,
 			load = False,
@@ -132,14 +132,14 @@ def run(
 				"corr": corr,
 			}
 
-			if t % 10 == 0:
-				x0 = x[batch==0]
-				xr0 = xr[batchr==0]
-				vis.reset()
-				vis.show_objects(xr0.cpu().detach())
-				vis.show_objects(x0.cpu().detach(), alpha=0.5, line={"dash": "dot"})
-				plt = vis.render()
-				log_data["visualisation"] = plt
+			# if t % 100 == 0:
+			# 	x0 = x[batch==0]
+			# 	xr0 = xr[batchr==0]
+			# 	vis.reset()
+			# 	vis.show_objects(xr0.cpu().detach())
+			# 	vis.show_objects(x0.cpu().detach(), alpha=0.3, linestyle="dashed")
+			# 	plt = vis.render()
+			# 	log_data["visualisation"] = plt
 
 			wandb.log(log_data)
 

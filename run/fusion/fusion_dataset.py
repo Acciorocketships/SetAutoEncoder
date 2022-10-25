@@ -7,38 +7,38 @@ from graphtorch.util import *
 class ObsEnv:
 
     def __init__(self,
-                 mean_agents = 8,
-                 mean_objects = 10,
-                 obs_range = 0.3,
-                 com_range = 0.3,
+                 max_agents =6,
+                 max_obj = 16,
+                 obs_range = 0.5,
+                 com_range = 0.5,
                  feat_dim = 4,
                  pos_dim = 2,
+                 pos_spread = 1.0,
                  concat_pos = True,
                  **kwargs,
                  ):
-        self.mean_agents = mean_agents
-        self.mean_objects = mean_objects
+        self.max_agents = max_agents
+        self.max_obj = max_obj
         self.obs_range = obs_range
         self.com_range = com_range
         self.feat_dim = feat_dim
         self.pos_dim = pos_dim
+        self.pos_spread = pos_spread
         self.concat_pos = concat_pos
 
     def sample(self):
         # Sample
-        n_agents = 0
-        n_objects = 0
-        while n_agents == 0 or n_agents > 2*self.mean_agents:
-            n_agents = torch.poisson(torch.tensor(self.mean_agents).float()).int().item()
-        agent_pos = torch.randn(n_agents, self.pos_dim)
-        while n_objects == 0 or n_objects > 2*self.mean_objects:
-            n_objects = torch.poisson(torch.tensor(self.mean_objects).float()).int().item()
-            object_pos = torch.randn(n_objects, self.pos_dim)
-            # Filter Unseen Objects
+        n_agents = torch.randint(low=1, high=self.max_agents+1, size=(1,)).item()
+        n_objects = torch.randint(low=1, high=self.max_obj+1, size=(1,)).item()
+        agent_pos = torch.randn(n_agents, self.pos_dim) * self.pos_spread
+        object_pos = torch.randn(n_objects, self.pos_dim) * self.pos_spread
+        num_objs_unseen = self.max_obj
+        while num_objs_unseen > 0:
             obs_dist = ((agent_pos.unsqueeze(1) - object_pos.unsqueeze(0)) ** 2).sum(dim=-1) ** 0.5
             num_seen_by = (obs_dist < self.obs_range).sum(dim=0) # number of agents that see each object (size: n_objects)
-            object_pos = object_pos[num_seen_by>0]
-            n_objects = object_pos.shape[0]
+            unseen_mask = num_seen_by == 0
+            num_objs_unseen = torch.sum(unseen_mask)
+            object_pos[unseen_mask,:] = torch.randn(num_objs_unseen, self.pos_dim) * self.pos_spread
 
         # Create Graph
         object_features = torch.randn(n_objects, self.feat_dim)
@@ -176,7 +176,6 @@ def radius(x, y, r, batch_x=None, batch_y=None, max_num_neighbors=32):
     return torch.stack([row[mask], col[mask]], dim=0)
 
 
-
 def radius_graph(x,
                  r,
                  batch=None,
@@ -191,9 +190,9 @@ def radius_graph(x,
         row, col = row[mask], col[mask]
     return torch.stack([row, col], dim=0)
 
+
 if __name__ == '__main__':
     env = ObsEnv()
     # data = env.sample_n(1000)
     data = env.sample_n_nested_combined(10)
-    breakpoint()
 

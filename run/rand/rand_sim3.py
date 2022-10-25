@@ -5,7 +5,7 @@ from sae.sae_new import AutoEncoder
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
 from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
 from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
-from visualiser import Visualiser
+from matplotlib import pyplot
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_name = "sae_rand-{name}-{hidden_dim}"
@@ -29,6 +29,9 @@ def experiments():
 		"n": 8,
 		"log": False,
 	}
+
+	fig, ax = pyplot.subplots()
+
 	for name, trial in trials.items():
 		if not isinstance(trial, list):
 			trial = [trial]
@@ -38,15 +41,16 @@ def experiments():
 			config["name"] = name
 			run(**config)
 
+	ax.legend()
+	pyplot.show()
+
 
 def run(
 			hidden_dim = 96,
-			n = 16,
 			dim = 6,
 			max_n = 16,
 			model = None,
 			name = None,
-			log = True,
 			**kwargs,
 		):
 
@@ -63,15 +67,6 @@ def run(
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
 
-	if log:
-		wandb.init(
-			entity="prorok-lab",
-			project=project,
-			group=name,
-			config=config,
-		)
-	vis = Visualiser(visible=False)
-
 	try:
 		model_path = model_path_base.format(name=name, hidden_dim=config["hidden_dim"])
 		model_state_dict = torch.load(model_path, map_location=device)
@@ -79,34 +74,38 @@ def run(
 	except Exception as e:
 		print(e)
 
-	data_list = []
-	size_list = []
-	torch.manual_seed(seed)
-	for i in range(64):
-		x = torch.randn(n, dim)
-		data_list.append(x)
-		size_list.append(n)
-	x = torch.cat(data_list, dim=0)
-	sizes = torch.tensor(size_list)
-	batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
+	batchsize = 64
+	samples = torch.linspace(0, 1.0, 100)
+	dists = torch.zeros(samples.shape[0])
 
-	x = x.to(device)
-	batch = batch.to(device)
+	for i, noise in enumerate(samples):
+		data_list = []
+		size_list = []
+		torch.manual_seed(seed)
+		for _ in range(batchsize):
+			n = torch.randint(low=1, high=max_n, size=(1,))
+			x = torch.randn(n[0], dim)
+			data_list.append(x)
+			size_list.append(n)
+		x = torch.cat(data_list, dim=0)
+		sizes = torch.cat(size_list, dim=0)
+		batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
 
-	xr, batchr = model(x, batch)
+		eps = torch.randn(x.shape[0], x.shape[1]) * noise
+		x_noise = x + eps
 
-	x = x[batch==0]
-	xr = xr[batchr==0]
+		x = x.to(device)
+		x_noise = x_noise.to(device)
+		batch = batch.to(device)
 
-	vis.reset()
-	vis.show_objects(x.cpu().detach(), alpha=0.3, linestyle="dashed")
-	vis.show_objects(xr.cpu().detach())
-	plt = vis.render()
-	vis.save(path=fig_path_base.format(name=name, hidden_dim=hidden_dim, n=int(n)))
+		z = model.encoder(x, batch)
+		z_noise = model.encoder(x_noise, batch)
 
-	if log:
-		wandb.log({"vis": plt})
-		wandb.finish()
+		dist = (z-z_noise).norm(dim=1).mean()
+		dists[i] = dist
+
+	ax = pyplot.gca()
+	ax.plot(samples.detach().cpu(), dists.detach().cpu(), label=name)
 
 
 if __name__ == '__main__':

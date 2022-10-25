@@ -1,29 +1,40 @@
 import wandb
 from torch.optim import Adam
-from run.fusion.fusion_dataset import ObsEnv
+from fusion_dataset import ObsEnv
 from fusion_model import FusionModel
 from visualiser import Visualiser
+from sae.sae_new import AutoEncoder
 from sae.util import *
 
 torch.manual_seed(0)
 
-project = "fusion_nested"
+project = "fusion"
+
+sae_load_path = "saved/sae_rand-sae-96.pt"
+model_save_path = "saved/fusion_dim=6_hidden=96_maxn=16.pt"
 
 ## Run
 
 def experiments():
 	trials = {
-		"filter2tanh": {"log": True},
+		"sae": {"autoencoder": AutoEncoder},
 	}
 	default = {
 		"feat_dim": 4,
 		"pos_dim": 2,
+		"embedding_dim": 96,
 		"batch_size": 64,
-		"epochs": 1000000,
+		"epochs": 1000,
 		"gnn_nlayers": 3,
 		"position": "abs",
 		"obs_range": 0.5,
-		"mean_objects": 8,
+		"com_range": 0.5,
+		"max_obj": 12,
+		"max_obj_sae": 16,
+		"max_agents": 5,
+		"log": True,
+		"load": True,
+		"save": True,
 	}
 	for name, cfg in trials.items():
 		config = default.copy()
@@ -34,13 +45,16 @@ def experiments():
 def run(
 			feat_dim = 4,
 			pos_dim = 2,
-			mean_agents = 3,
-			mean_objects = 8,
-			max_obj=16,
-			epochs = 10000,
-			batch_size = 100,
+			max_agents = 6,
+			max_obj = 16,
+			max_obj_sae=16,
+			epochs = 1000,
+			batch_size = 64,
+			plot_interval = 10,
 			name = None,
 			log = True,
+			load = True,
+			save = True,
 			**kwargs,
 		):
 
@@ -58,22 +72,21 @@ def run(
 				config = config,
 			)
 
-	env = ObsEnv(feat_dim=feat_dim, pos_dim=pos_dim, mean_agents=mean_agents, mean_objects=mean_objects, **kwargs)
+	env = ObsEnv(feat_dim=feat_dim, pos_dim=pos_dim, max_agents=max_agents, max_obj=max_obj, **kwargs)
 
-	model = FusionModel(input_dim=feat_dim+pos_dim, max_obj=max_obj, **kwargs)
+	model = FusionModel(input_dim=feat_dim+pos_dim, max_obj=max_obj_sae, **kwargs)
 	optim = Adam(model.parameters())
 
-	try:
-		model_path = "nested/saved/sae_rand-sae-96.pt"
-		model_state_dict = torch.load(model_path, map_location=device)
-		model.autoencoder.load_state_dict(model_state_dict)
-	except Exception as e:
-		print(e)
+	if load:
+		try:
+			model_state_dict = torch.load(sae_load_path, map_location=device)
+			model.autoencoder.load_state_dict(model_state_dict)
+		except Exception as e:
+			print(e)
 
 	if log:
 		vis = Visualiser(visible=False)
 
-	i = 0
 	for t in range(epochs):
 
 		data = env.sample_n_nested_combined(batch_size)
@@ -87,12 +100,21 @@ def run(
 		optim.zero_grad()
 
 		if log:
-			wandb.log(loss_data, step=i)
-			imgs = get_rendering(model, data, agent=0, vis=vis)
-			wandb.log(imgs, step=i)
-		i += 1
+			wandb.log(loss_data, step=t)
+			if t % plot_interval == 0:
+				imgs = get_rendering(model, data, agent=0, vis=vis)
+				wandb.log(imgs, step=t)
 
 	wandb.finish()
+
+	if save:
+		try:
+			model_state_dict = model.state_dict()
+			torch.save(model_state_dict, model_save_path)
+		except Exception as e:
+			print(e)
+
+
 
 
 def get_rendering(model, data, batch=0, agent=0, vis=None):

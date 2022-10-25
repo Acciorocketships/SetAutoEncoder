@@ -1,10 +1,9 @@
-import torch
 from torch import Tensor
 from graphtorch import MessagePassing
 from graphtorch.util import *
 from sae.mlp import build_mlp
 from sae.util import *
-
+import torch
 
 
 
@@ -15,7 +14,7 @@ class MergeGNN(MessagePassing):
 		self.autoencoder = autoencoder
 		self.decoder = autoencoder.decoder
 		self.encoder = autoencoder.encoder
-		self.filter = FilterModel2(input_dim=self.encoder.input_dim, hidden_dim=self.encoder.input_dim)
+		self.filter = FilterModel(input_dim=self.encoder.input_dim, hidden_dim=self.encoder.input_dim)
 		self.max_n = self.encoder.get_max_n()
 
 	def forward(self, z: Tensor, edge_index: Tensor, **kwargs):
@@ -57,13 +56,14 @@ class MergeGNN(MessagePassing):
 		K, D = xi.shape
 		xi_0 = xi.unsqueeze(0).expand(K, -1, -1)
 		xi_1 = xi.unsqueeze(1).expand(-1, K, -1)
-		xi_mat = torch.cat([xi_0, xi_1], dim=0)
+		xi_mat = torch.cat([xi_0, xi_1], dim=-1)
 		xi_mat_flat = xi_mat.reshape(K ** 2, 2 * D)
 		classes_flat = self.filter(xi_mat_flat)
 		classes = classes_flat.view(K, K, 2)
 		classes_bin = classes.argmax(dim=-1)
 		diag = torch.triu(classes_bin, diagonal=1)
 		mask = diag.sum(dim=0) == 0
+		# breakpoint()
 		if mask.sum() > self.max_n:
 			idxs = torch.where(mask)[0][self.max_n:]
 			mask[idxs] = False
@@ -179,27 +179,7 @@ class Decoder(torch.nn.Module):
 
 
 
-
 class FilterModel(torch.nn.Module):
-
-	def __init__(self, input_dim, hidden_dim):
-		super().__init__()
-		self.input_dim = input_dim
-		self.hidden_dim = hidden_dim
-		self.pre_mlp = build_mlp(input_dim=input_dim, output_dim=hidden_dim, nlayers=2, layernorm=True)
-		self.post_mlp = build_mlp(input_dim=hidden_dim, output_dim=2, nlayers=2, layernorm=True)
-
-	def forward(self, x):
-		x1 = x[:,:self.input_dim]
-		x2 = x[:,self.input_dim:]
-		a1 = self.pre_mlp(x1)
-		a2 = self.pre_mlp(x2)
-		b = a1 * a2
-		c = self.post_mlp(b)
-		return c
-
-
-class FilterModel2(torch.nn.Module):
 
 	def __init__(self, input_dim, **kwargs):
 		super().__init__()

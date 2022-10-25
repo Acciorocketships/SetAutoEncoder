@@ -1,5 +1,4 @@
 import torch
-import wandb
 import inspect
 from sae.sae_new import AutoEncoder
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
@@ -9,11 +8,10 @@ from visualiser import Visualiser
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_name = "sae_rand-{name}-{hidden_dim}"
-model_name_n = "sae_rand-{name}-{hidden_dim}-{n}"
 model_path_base = f"saved/{model_name}.pt"
-fig_path_base = f"plots/{model_name_n}.pdf"
+fig_path_base = "plots/sim/{name}-{alpha}.pdf"
 
-seed = 5
+seed = 0
 
 project = "sae-rand-eval"
 
@@ -29,6 +27,7 @@ def experiments():
 		"n": 8,
 		"log": False,
 	}
+
 	for name, trial in trials.items():
 		if not isinstance(trial, list):
 			trial = [trial]
@@ -41,12 +40,11 @@ def experiments():
 
 def run(
 			hidden_dim = 96,
-			n = 16,
 			dim = 6,
+			n = 8,
 			max_n = 16,
 			model = None,
 			name = None,
-			log = True,
 			**kwargs,
 		):
 
@@ -63,15 +61,6 @@ def run(
 	config = kwargs
 	config.update({"dim": dim, "hidden_dim": hidden_dim, "max_n": max_n})
 
-	if log:
-		wandb.init(
-			entity="prorok-lab",
-			project=project,
-			group=name,
-			config=config,
-		)
-	vis = Visualiser(visible=False)
-
 	try:
 		model_path = model_path_base.format(name=name, hidden_dim=config["hidden_dim"])
 		model_state_dict = torch.load(model_path, map_location=device)
@@ -79,10 +68,15 @@ def run(
 	except Exception as e:
 		print(e)
 
+	vis = Visualiser(visible=False)
+
+	batchsize = 64
+	alpha = torch.linspace(0, 1.0, 7)
+
 	data_list = []
 	size_list = []
 	torch.manual_seed(seed)
-	for i in range(64):
+	for _ in range(batchsize):
 		x = torch.randn(n, dim)
 		data_list.append(x)
 		size_list.append(n)
@@ -93,20 +87,30 @@ def run(
 	x = x.to(device)
 	batch = batch.to(device)
 
-	xr, batchr = model(x, batch)
+	set0_idx = 0
+	set1_idx = 1
 
-	x = x[batch==0]
-	xr = xr[batchr==0]
+	z = model.encoder(x, batch)
+	z0 = z[set0_idx,:]
+	z1 = z[set1_idx,:]
 
-	vis.reset()
-	vis.show_objects(x.cpu().detach(), alpha=0.3, linestyle="dashed")
-	vis.show_objects(xr.cpu().detach())
-	plt = vis.render()
-	vis.save(path=fig_path_base.format(name=name, hidden_dim=hidden_dim, n=int(n)))
+	z0_interp = z0.unsqueeze(0) * (1-alpha).unsqueeze(1)
+	z1_interp = z1.unsqueeze(0) * alpha.unsqueeze(1)
+	z_interp = z0_interp + z1_interp
 
-	if log:
-		wandb.log({"vis": plt})
-		wandb.finish()
+	xr, batchr = model.decoder(z_interp)
+
+	for i in range(alpha.shape[0]):
+		vis.reset()
+		if alpha[i] == 0:
+			vis.show_objects(x[batch==set0_idx].cpu().detach(), alpha=0.3, linestyle="dashed")
+		elif alpha[i] == 1:
+			vis.show_objects(x[batch == set1_idx].cpu().detach(), alpha=0.3, linestyle="dashed")
+		vis.show_objects(xr[batchr==i].cpu().detach())
+		plt = vis.render(lim=2.5)
+		vis.save(path=fig_path_base.format(name=name, alpha="%2.2f" % alpha[i]))
+		vis.close()
+
 
 
 if __name__ == '__main__':

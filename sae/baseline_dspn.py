@@ -501,7 +501,7 @@ if __name__ == '__main__':
 
 	# enc = Encoder(dim=dim)
 	# dec = Decoder(encoder=enc, dim=dim, max_n=max_n)
-	ae = AutoEncoder(dim=dim, max_n=max_n)
+	ae = AutoEncoder(dim=dim, hidden_dim=96, max_n=max_n)
 
 	data_list = []
 	batch_list = []

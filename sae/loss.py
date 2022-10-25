@@ -50,15 +50,20 @@ def get_loss_idxs(set1_lens, set2_lens):
     return ptr1, ptr2
 
 
-def correlation(x1, x2):
+def correlation(x1, x2, return_arr=False):
     # finds the correlation coefficient between x1 and x2 across the batch, for each dimension
     # the output is the mean of the corrs for each dimension
     corr_mat = np.corrcoef(x1.cpu().detach(), x2.cpu().detach(), rowvar=False)
     n = x1.shape[-1]
     idxs = np.array([(i,i+n) for i in range(n)])
-    corrs = corr_mat[idxs[:,0], idxs[:,1]]
-    corr = np.mean(corrs)
-    return corr
+    try:
+        corrs = corr_mat[idxs[:,0], idxs[:,1]]
+        if return_arr:
+            return torch.as_tensor(corrs)
+        corr = np.mean(corrs)
+        return corr
+    except:
+        return torch.nan
 
 
 def batch_to_set_lens(batch, batch_size=None):

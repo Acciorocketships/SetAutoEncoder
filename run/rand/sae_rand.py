@@ -17,19 +17,19 @@ project = "sae-rand-exp"
 
 def experiments():
 	trials = {
-		"sae": [{"model": AutoEncoder, "hidden_dim": 96, "runs": 1, "save": True}],
-		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": True}],
-		"rnn": [{"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 1, "save": True}],
-		"tspn": [{"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 1, "save": True}],
+		# "sae": [{"model": AutoEncoder, "hidden_dim": 96, "runs": 1, "save": True}],
+		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": False}],
+		# "rnn": [{"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 1, "save": True}],
+		# "tspn": [{"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 1, "save": True}],
 	}
 	default = {
 		"dim": 6,
 		"hidden_dim": 96,
 		"max_n": 16,
 		"epochs": 25000,
-		"load": False,
+		"load": True,
 		"save": False,
-		"log": True,
+		"log": False,
 		"runs": 1,
 		"retries": 1,
 	}
@@ -54,7 +54,7 @@ def experiments():
 
 
 def run(
-			dim = 4,
+			dim = 6,
 			hidden_dim = 64,
 			max_n = 16,
 			epochs = 100000,
@@ -93,7 +93,7 @@ def run(
 
 	if load:
 		try:
-			model_state_dict = torch.load(model_path)
+			model_state_dict = torch.load(model_path, map_location=device)
 			model.load_state_dict(model_state_dict)
 		except Exception as e:
 			print(e)
@@ -116,6 +116,8 @@ def run(
 
 		xr, batchr = model(x, batch)
 
+		breakpoint()
+
 		loss_data = model.loss()
 		loss = loss_data["loss"]
 
@@ -134,14 +136,14 @@ def run(
 				"corr": corr,
 			}
 
-			if t % 10 == 0:
-				x0 = x[batch==0]
-				xr0 = xr[batchr==0]
-				vis.reset()
-				vis.show_objects(xr0.cpu().detach())
-				vis.show_objects(x0.cpu().detach(), alpha=0.5, line={"dash": "dot"})
-				plt = vis.render()
-				log_data["visualisation"] = plt
+			# if t % 10 == 0:
+			# 	x0 = x[batch==0]
+			# 	xr0 = xr[batchr==0]
+			# 	vis.reset()
+			# 	vis.show_objects(xr0.cpu().detach())
+			# 	vis.show_objects(x0.cpu().detach(), alpha=0.3, linestyle="dashed")
+			# 	plt = vis.render()
+			# 	log_data["visualisation"] = plt
 
 			wandb.log(log_data)
 
