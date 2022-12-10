@@ -55,7 +55,7 @@ class Visualiser:
 				self.ax.arrow(pos[0], pos[1], pos2[0]-pos[0], pos2[1]-pos[1], color=colour, **kwargs)
 		elif radius is not None:
 			if type == "circle":
-				shape = Circle((pos[0], pos[1]), radius=radius, facecolor=colour, edgecolor="black", **kwargs)
+				shape = Circle((pos[0], pos[1]), radius=radius, facecolor=colour, edgecolor="black", linewidth=4, **kwargs)
 			elif type == "box":
 				shape = Rectangle((pos[0]-radius, pos[1]-radius), width=2*radius, height=2*radius, facecolor=colour, edgecolor="black", **kwargs)
 			self.ax.add_patch(shape)

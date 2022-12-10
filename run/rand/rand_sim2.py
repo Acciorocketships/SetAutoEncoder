@@ -12,7 +12,7 @@ model_name = "sae_rand-{name}-{hidden_dim}"
 model_path_base = f"saved/{model_name}.pt"
 fig_path_base = "plots/dist.pdf"
 
-seed = 10
+seed = torch.randint(torch.iinfo(torch.int).max, size=(1,))[0]
 
 project = "sae-rand-eval"
 
@@ -30,7 +30,7 @@ def experiments():
 	}
 
 	dists = []
-	names = ["SAE", "RNN", "DSPN", "TSPN"]
+	names = ["PISA", "GRU", "DSPN", "TSPN"]
 	colours = ["#377eb8", "#ff7f00", "#4daf4a", "#f781bf"]
 	mindist = None
 
@@ -48,16 +48,16 @@ def experiments():
 
 	pyplot_setup()
 	fig, ax = pyplot.subplots()
-	vplot = ax.violinplot(dists, showmeans=True, showextrema=False)
+	vplot = ax.violinplot(dists, vert=False, showmeans=True, showextrema=False)
 	for patch, color in zip(vplot['bodies'], colours):
 		patch.set_color(color)
-	pyplot.axhline(y=mindist, color='r', linestyle='-')
-	ax.set_xticks([1,2,3,4])
-	ax.set_xticklabels(names)
-	pyplot.ylabel("Interpolated Set Arc Length")
+	pyplot.axvline(x=mindist, color='r', linestyle='-')
+	ax.set_yticks([1,2,3,4])
+	ax.set_yticklabels(names)
+	pyplot.xlabel("Interpolated Set Arc Length")
 	# pyplot.yscale("symlog", linthresh=10, subs=[2,3,4,5,6,7,8,9])
-	pyplot.yscale("log")
-	pyplot.ylim(bottom=5, top=900)
+	pyplot.xscale("log")
+	pyplot.xlim(left=5, right=900)
 	pyplot.grid()
 	fig.savefig(fig_path_base, bbox_inches="tight")
 	pyplot.show()

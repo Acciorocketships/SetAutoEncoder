@@ -18,13 +18,13 @@ seed = 0
 
 def experiments():
 	trials = {
-		"sae": [{"model": AutoEncoder, "label": "SAE"}],
+		"sae": [{"model": AutoEncoder, "label": "PISA"}],
 		"rnn": [{"model": AutoEncoderRNN, "label": "GRU"}],
 		"dspn": [{"model": AutoEncoderDSPN, "label": "DSPN"}],
 		"tspn": [{"model": AutoEncoderTSPN, "label": "TSPN"}],
 	}
 	default = {
-		"hidden_dim": 48,
+		"hidden_dim": 96,
 		"max_n": 16,
 	}
 
