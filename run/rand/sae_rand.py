@@ -4,10 +4,10 @@ import wandb
 import inspect
 import traceback
 from sae import get_loss_idxs, correlation
-from sae.sae_new import AutoEncoder
-from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
-from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
-from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
+from sae.sae_model import AutoEncoder
+# from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
+# from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
+# from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
 from visualiser import Visualiser
 
 torch.set_printoptions(precision=2, sci_mode=False)
@@ -17,19 +17,19 @@ project = "sae-rand-exp"
 
 def experiments():
 	trials = {
-		# "sae": [{"model": AutoEncoder, "hidden_dim": 96, "runs": 1, "save": True}],
-		"dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": False}],
+		"sae": [{"model": AutoEncoder, "hidden_dim": 64, "runs": 1, "save": False}],
+		# "dspn": [{"model": AutoEncoderDSPN, "hidden_dim": 96, "runs": 1, "save": False}],
 		# "rnn": [{"model": AutoEncoderRNN, "hidden_dim": 96, "runs": 1, "save": True}],
 		# "tspn": [{"model": AutoEncoderTSPN, "hidden_dim": 96, "runs": 1, "save": True}],
 	}
 	default = {
-		"dim": 6,
+		"dim": 16,
 		"hidden_dim": 96,
-		"max_n": 16,
+		"max_n": 4,
 		"epochs": 25000,
-		"load": True,
+		"load": False,
 		"save": False,
-		"log": False,
+		"log": True,
 		"runs": 1,
 		"retries": 1,
 	}
@@ -103,7 +103,8 @@ def run(
 		data_list = []
 		size_list = []
 		for i in range(batch_size):
-			n = torch.randint(low=1, high=max_n, size=(1,))
+			# n = torch.randint(low=1, high=max_n, size=(1,))
+			n = torch.tensor([max_n])
 			x = torch.randn(n[0], dim)
 			data_list.append(x)
 			size_list.append(n)
@@ -115,8 +116,6 @@ def run(
 		batch = batch.to(device)
 
 		xr, batchr = model(x, batch)
-
-		breakpoint()
 
 		loss_data = model.loss()
 		loss = loss_data["loss"]

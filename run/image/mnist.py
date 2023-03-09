@@ -5,25 +5,21 @@ import random
 from torch import nn
 import torchvision
 import torchvision.transforms as transforms
-from sae.sae_inner import AutoEncoder
-
-# from sae.sae_hyper import AutoEncoder
-from sae import get_loss_idxs
-import torch_geometric
+from sae.sae_new import AutoEncoder
+from sae import get_loss_idxs, mean_squared_loss
 from matplotlib import pyplot as plt
 import numpy as np
-import time
 import wandb
 
+wandb_project = "sae-mnist"
 
 def imshow(img, epoch, prefix=""):
-    img = img / 2 + 0.5  # unnormalize
+    img = img / 2 + 0.5     # unnormalize
     npimg = img.numpy()
     plt.imshow(np.transpose(npimg, (1, 2, 0)))
     plt.tight_layout()
     os.makedirs("/tmp/setae", exist_ok=True)
     plt.savefig(f"/tmp/setae/{prefix}recon_epoch_{epoch:03}.png")
-
 
 def constrained_sum_sample_pos(n, total, min_num, max_num):
     """Return a randomly chosen list of n positive integers summing to total,
@@ -32,11 +28,10 @@ def constrained_sum_sample_pos(n, total, min_num, max_num):
     nums = []
     running_sum = 0
     while running_sum < total:
-        nums += [random.randint(min_num, max_num - 1)]
+        nums += [random.randint(min_num, max_num-1)]
         running_sum = sum(nums)
     nums[-1] = total - sum(nums[:-1])
     return nums
-
 
 def constrained_sum_sample_pos2(n, total):
     """Return a randomly chosen list of n positive integers summing to total.
@@ -44,6 +39,40 @@ def constrained_sum_sample_pos2(n, total):
 
     dividers = sorted(random.sample(range(1, total), n - 1))
     return [a - b for a, b in zip(dividers + [total], [0] + dividers)]
+
+
+# class CNNAE(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         # Input size: [batch, 3, 32, 32]
+#         # Output size: [batch, 3, 32, 32]
+#         self.encoder = nn.Sequential(
+#             nn.Conv2d(3, 12, 4, stride=2, padding=1),            # [batch, 12, 16, 16]
+#             nn.LeakyReLU(),
+#             nn.Conv2d(12, 24, 4, stride=2, padding=1),           # [batch, 24, 8, 8]
+#             nn.LeakyReLU(),
+#             nn.Conv2d(24, 48, 4, stride=2, padding=1),           # [batch, 48, 4, 4]
+#             nn.LeakyReLU(),
+#             nn.Conv2d(48, 96, 4, stride=2, padding=1),           # [batch, 96, 2, 2]
+#             nn.LeakyReLU(),
+#             nn.Flatten(1),
+#         )
+#         self.decoder = nn.Sequential(
+#             nn.Unflatten(1, (96, 2, 2)),
+#             nn.ConvTranspose2d(96, 48, 4, stride=2, padding=1),  # [batch, 48, 4, 4]
+#             nn.LeakyReLU(),
+#             nn.ConvTranspose2d(48, 24, 4, stride=2, padding=1),  # [batch, 24, 8, 8]
+#             nn.LeakyReLU(),
+#             nn.ConvTranspose2d(24, 12, 4, stride=2, padding=1),  # [batch, 12, 16, 16]
+#             nn.LeakyReLU(),
+#             nn.ConvTranspose2d(12, 3, 4, stride=2, padding=1),   # [batch, 3, 32, 32]
+#             #nn.Tanh(),
+#         )
+#
+#     def forward(self, x):
+#         encoded = self.encoder(x)
+#         decoded = self.decoder(encoded)
+#         return encoded, decoded
 
 
 class CNNAE(nn.Module):
@@ -73,14 +102,18 @@ class CNNAE(nn.Module):
         decoded = self.decoder(encoded)
         return decoded
 
+    def forward(self, x):
+        encoded = self.encoder(x)
+        decoded = self.decoder(encoded)
+        return encoded, decoded
 
-class TFAE(nn.Module):
+
+class SeqAE(nn.Module):
     def __init__(self, max_seq_len):
         super().__init__()
-        self.max_seq_len = max_seq_len
         self.cnn_ae = CNNAE()
-        self.set_ae = nn.Transformer(
-            d_model=64, dim_feedforward=max_seq_len * 64, batch_first=True, nhead=1
+        self.set_ae = AutoEncoder(
+            dim=64, hidden_dim=max_seq_len * 64 // 2, max_n=max_seq_len, pos_mode="onehot"
         )
 
     def forward_old(self, x, b_idx):
@@ -89,32 +122,12 @@ class TFAE(nn.Module):
 
     def forward(self, x, b_idx):
         cnn_feat = self.cnn_ae.encoder(x)
-        uniqs, seq_lens = b_idx.unique(return_counts=True)
-        mask = torch.ones(
-            uniqs.numel(), self.max_seq_len, self.max_seq_len, dtype=torch.bool
-        )
-
-        src_in = torch.zeros(uniqs.numel(), self.max_seq_len, 64)
-        cnn_feat = cnn_feat.flatten(1)
-        pad_mask = torch.zeros(uniqs.numel(), self.max_seq_len)
-        for u, c in zip(uniqs, seq_lens):
-            mask[u, :c, :c] = False
-            pad_mask[u, :c] = False
-            src_in[u, :c] = cnn_feat[b_idx == u]
-        tgt_in = torch.zeros_like(src_in)
-
-        # TODO: This gets to see all tokens
-        z = self.set_ae(
-            src_in,
-            tgt_in,  # src_mask=mask, tgt_mask=mask, memory_mask=mask,
-            src_key_padding_mask=pad_mask,
-            tgt_key_padding_mask=pad_mask,
-        )
-        batch = b_idx
-        pred_seq_lens = seq_lens
+        z = self.set_ae.encoder(cnn_feat.flatten(1), b_idx)
+        set_feat, batch = self.set_ae.decoder(z)
         img = self.cnn_ae.decoder(cnn_feat)
-        imgs = self.cnn_ae.decoder(z.reshape(-1, 64)[b_idx])
-        return (imgs, batch, pred_seq_lens), img
+        imgs = self.cnn_ae.decoder(set_feat)
+        return (imgs, batch), img
+
 
     def encode(self, x, b_idx):
         # Shape [B*t,f]
@@ -123,64 +136,18 @@ class TFAE(nn.Module):
         return z
 
     def decode(self, z):
-        feat, batch, pred_seq_lens = self.set_ae.decoder(z)
+        feat, batch = self.set_ae.decoder(z)
         img = self.cnn_ae.decoder(feat.reshape(-1, 96, 2, 2))
-        return img, batch, pred_seq_lens
-
-
-class SeqAE(nn.Module):
-    def __init__(self, max_seq_len):
-        super().__init__()
-        self.cnn_ae = CNNAE()
-        self.set_ae = AutoEncoder(
-            dim=64,
-            hidden_dim=max_seq_len * 64 // 2,
-            max_n=max_seq_len,
-            pe="onehot",
-            data_batch=False,
-        )
-
-    def loss(self, cnn_x, set_z_pred, cnn_x_pred=None, cnn_weight=1.0):
-        """Computes combined loss given x and reconstructed x.
-        Note that although cnn_x and var[x] should be the same,
-        var[x] is in fact a permuted version. So do not mess up
-        var[x] and x."""
-        var = self.set_ae.get_vars()
-        valid_batch_mask = (var["n_pred"] == var["n"]).reshape(-1)
-        pct_correct_sizes = valid_batch_mask.float().sum() / valid_batch_mask.numel()
-        pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
-
-        set_mse_loss = torch.nn.functional.mse_loss(
-            self.cnn_ae.decoder(set_z_pred)[pred_idx], cnn_x[var["x_perm_idx"]][tgt_idx]
-        )
-        # Sometimes mse loss can be zero if we predict entirely wrong batches
-        # or predict all batches of size zero
-        if torch.isnan(set_mse_loss):
-            set_mse_loss = 0
-        set_ce_loss = torch.nn.functional.cross_entropy(var["n_pred_logits"], var["n"])
-        loss = set_mse_loss + set_ce_loss
-
-        if cnn_x_pred is None:
-            return loss, (set_mse_loss, set_ce_loss, 0, pct_correct_sizes)
-
-        cnn_loss = torch.nn.functional.mse_loss(cnn_x, cnn_x_pred)
-        loss = loss + cnn_loss * cnn_weight
-        return loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes)
-
-    def forward(self, x, b_idx):
-        cnn_feat = self.cnn_ae.encoder(x)
-        set_z_pred, set_batch_pred = self.set_ae(cnn_feat, b_idx)
-        #set_x_pred = self.cnn_ae.decoder(set_z_pred)
-        cnn_x_pred = self.cnn_ae.decoder(cnn_feat)
-        return set_z_pred, cnn_x_pred
+        return img, batch
 
 
 def main():
-    device = "cpu"
-    wandb.init(project="sae_cifar10")
+    device = "cpu" if not torch.cuda.is_available() else "cuda"
+    if wandb_project is not None:
+        wandb.init(entity="prorok-lab", project=wandb_project, group="perm")
     transform = transforms.Compose([transforms.ToTensor()])
 
-    batch_size = 512
+    batch_size = 256
     val_batch_size = 64
 
     trainset = torchvision.datasets.MNIST(
@@ -199,20 +166,21 @@ def main():
     valset = torch.stack([testset[i][0] for i in range(64)], dim=0)
 
     # val_seq_lens = torch.tensor([4, 6, 8, 10, 12, 14, 10], device=device)
-    val_seq_lens = torch.tensor([1, 3, 5, 7, 9, 11, 13, 15], device=device)
-    
-    seq_len_range = torch.tensor([1, 16], device=device)
+    val_seq_lens = torch.tensor([2, 4, 6, 8] + [4] * 11, device=device)
+    seq_len_range = torch.tensor([1, 9])
     num_seqs_range = (1 / (seq_len_range / batch_size)).int().flip(0)
     model = SeqAE(seq_len_range[1]).to(device)
-    print(model)
-    opt = torch.optim.AdamW(model.parameters(), lr=0.0001)
-    graph = wandb.watch(model, log="gradients", log_freq=500)
+    opt = torch.optim.Adam(model.parameters(), lr=0.001)
+    crit = torch.nn.functional.mse_loss
+    if wandb_project is not None:
+        wandb.watch(model, log='all')
 
     # train loop
     epochs = 200
     pbar = tqdm.trange(epochs, position=0, desc="All Epochs", unit="epoch")
     loss = 0
     val_loss = 0
+    iter = 1
     for epoch in pbar:
         pbar2 = tqdm.tqdm(
             trainloader, position=1, desc=f"Epoch {epoch}", unit="batch", leave=False
@@ -220,21 +188,31 @@ def main():
         for data in pbar2:
             targets, _ = data
             targets = targets.to(device)
+            opt.zero_grad()
             num_seqs = random.randint(*num_seqs_range)
             seq_lens = torch.tensor(
                 constrained_sum_sample_pos(num_seqs, targets.shape[0], *seq_len_range),
-                dtype=torch.int64,
-                device=device,
+                dtype=torch.int64, device=device
             )
-            assert torch.all(seq_lens > 0)
             b_idx = torch.repeat_interleave(
                 torch.arange(seq_lens.numel(), device=device), seq_lens
             )
-            set_pred, cnn_pred = model(targets, b_idx)
-            cnn_weight = 1.0 #1 - epoch / epochs
-            loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
-                targets, set_pred, cnn_pred, cnn_weight
+            (recon, recon_b_idx), cnn_pred = model(targets, b_idx)
+            seq_lens = model.set_ae.encoder.get_n()
+            pred_seq_lens = model.set_ae.decoder.get_n_pred()
+            perm = model.set_ae.encoder.get_x_perm()
+            pred_loss_idx, target_loss_idx = get_loss_idxs(
+                pred_seq_lens, seq_lens
             )
+            set_loss = crit(
+                recon[pred_loss_idx], targets[perm][target_loss_idx]
+            )
+            if torch.isnan(set_loss):
+                set_loss = 0
+            vars = model.set_ae.get_vars()
+            size_loss = torch.mean(mean_squared_loss(vars["n_pred_logits"], vars["n"].unsqueeze(-1).detach().float()))
+            cnn_loss = crit(cnn_pred, targets)
+            loss = cnn_loss + set_loss + size_loss
             if not torch.isfinite(loss):
                 print("Warning: got NaN loss, ignoring...")
                 continue
@@ -242,51 +220,51 @@ def main():
             pbar2.set_description(f"train loss: {loss:.3f}")
             loss.backward()
             opt.step()
-            opt.zero_grad()
-            wandb.log(
-                {
-                    "loss": loss,
-                    "reconstruction loss": set_mse_loss,
-                    "set size loss": set_ce_loss,
-                    "cnn reconstruction loss": cnn_loss,
-                    "percent correct set size preds": pct_correct_sizes,
-                    "epoch": epoch,
-                }
-            )
+            if wandb_project is not None:
+                wandb.log(
+                    {"loss": loss, "set loss": set_loss, "size loss": size_loss, "cnn loss": cnn_loss, "epoch": epoch},
+                    commit=True,
+                )
+            iter += 1
+
         val_loss = 0
         targets = valset
         b_idx = torch.repeat_interleave(
             torch.arange(val_seq_lens.numel(), device=device), val_seq_lens
         )
         with torch.no_grad():
-            set_pred, cnn_pred = model(targets, b_idx)
-            val_loss, (set_mse_loss, set_ce_loss, cnn_loss, pct_correct_sizes) = model.loss(
-                targets, set_pred, cnn_pred, cnn_weight
-            )
-        var = model.set_ae.get_vars()
+            (recon, recon_b_idx), cnn_pred = model(targets, b_idx)
 
-        viz = torchvision.utils.make_grid(
-            torch.cat([
-                targets[var["x_perm_idx"]], 
-                cnn_pred[var["x_perm_idx"]].clamp(-1, 1), 
-                model.cnn_ae.decoder(set_pred[:64]).clamp(-1, 1)
-            ], dim=0),
-            nrow=64,
+        pred_seq_lens = model.set_ae.decoder.get_n_pred()
+        perm = model.set_ae.encoder.get_x_perm()
+        pred_loss_idx, target_loss_idx = get_loss_idxs(
+            pred_seq_lens, val_seq_lens
         )
+        set_loss = crit(
+            recon[pred_loss_idx], targets[perm][target_loss_idx]
+        )
+        cnn_loss = crit(cnn_pred, targets)
+        val_loss = set_loss + cnn_loss
+        perm = model.set_ae.encoder.get_x_perm()
+        targets = targets[perm]
+        cnn_pred = cnn_pred[perm]
+        b = 20
+        viz = torchvision.utils.make_grid(
+            torch.cat([targets[:b], cnn_pred[:b].clamp(-1, 1), recon[:b]], dim=0), nrow=b
+        )
+        # imshow(viz, epoch)
 
         pbar.set_description(f"val loss: {val_loss:.3f}")
-        wandb.log(
-            {
-                "val loss": val_loss,
-                "val reconstruction loss": set_mse_loss,
-                "val set size loss": set_ce_loss,
-                "val cnn reconstruction loss": cnn_loss,
-                "val image": wandb.Image((viz + 1) / 2),
-                "val percent correct set size preds": pct_correct_sizes,
-            },
-            commit=False,
-        )
+        if wandb_project is not None:
+            wandb.log(
+                {
+                    "val loss": val_loss,
+                    "val set loss": set_loss,
+                    "val cnn loss": cnn_loss,
+                    "val image": wandb.Image(viz / 2 + 0.5),
+                },
+                commit=False)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

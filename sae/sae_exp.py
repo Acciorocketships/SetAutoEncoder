@@ -13,8 +13,9 @@ class AutoEncoder(nn.Module):
 		Must have self.encoder and self.decoder objects, which follow the encoder and decoder interfaces
 		'''
 		super().__init__()
-		self.encoder = Encoder(*args, **kwargs)
-		self.decoder = Decoder(*args, **kwargs)
+		self.shared = Shared(*args, **kwargs)
+		self.encoder = Encoder(shared=self.shared, *args, **kwargs)
+		self.decoder = Decoder(shared=self.shared, *args, **kwargs)
 
 	def forward(self, x, batch=None):
 		z = self.encoder(x, batch)
@@ -58,22 +59,15 @@ class AutoEncoder(nn.Module):
 
 class Encoder(nn.Module):
 
-	def __init__(self, dim, hidden_dim=64, max_n=64, **kwargs):
+	def __init__(self, dim, hidden_dim=64, shared=None, **kwargs):
 		super().__init__()
 		# Params
 		self.input_dim = dim
-		self.deepset_dim = dim
 		self.hidden_dim = hidden_dim
-		self.max_n = max_n
-		self.pos_mode = kwargs.get("pos_mode", "onehot")
+		self.shared = shared
 		# Modules
-		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=self.pos_mode)
-		self.key_net_deepset = build_mlp(input_dim=self.max_n, output_dim=self.deepset_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=nn.Tanh)
-		self.val_net_deepset = build_mlp(input_dim=self.input_dim, output_dim=self.deepset_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=nn.Tanh)
-		self.key_net_main = build_mlp(input_dim=self.max_n+self.deepset_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Tanh)
-		self.val_net_main = build_mlp(input_dim=self.input_dim+self.deepset_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Tanh)
+		self.val_net = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
-		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
 	def sort(self, x):
 		mag = self.rank(x).reshape(-1)
@@ -104,20 +98,13 @@ class Encoder(nn.Module):
 		self.xs = xs
 		self.xs_idx = xs_idx
 
-		keys = torch.cat([torch.arange(ni, device=x.device) for ni in n], dim=0).int() # batch_size]
-		pos = self.pos_gen(keys) # batch_size x hidden_dim
-
-		# Deepset
-		y1_ds = self.val_net_deepset(xs) * self.key_net_deepset(pos) # total_nodes x hidden_dim
-		z_ds = scatter(src=y1_ds, index=batch, dim=-2, dim_size=n_batches) # batch_size x hidden_dim
-		z_ds_rep = torch.repeat_interleave(z_ds, n, dim=0)
+		k = torch.cat([torch.arange(ni, device=x.device) for ni in n], dim=0).int() # batch_size]
+		keys = self.shared.get_key(k)
 
 		# Encoder
-		x_in = torch.cat([xs, z_ds_rep], dim=1)
-		pos_in = torch.cat([pos, z_ds_rep], dim=1)
-		y = self.val_net_main(x_in) * self.key_net_main(pos_in)  # total_nodes x hidden_dim
+		y = self.val_net(xs) * keys  # total_nodes x hidden_dim
 		z_elements = scatter(src=y, index=batch, dim=-2, dim_size=n_batches)  # batch_size x dim
-		n_enc = self.cardinality(n.unsqueeze(-1).float())
+		n_enc = self.shared.cardinality(n.unsqueeze(-1).float())
 		z = z_elements + n_enc
 		self.z = z
 		return z
@@ -142,44 +129,39 @@ class Encoder(nn.Module):
 		'Returns: the number of elements per batch (shape: batch)'
 		return self.n
 
-	def get_max_n(self):
-		return self.max_n
-
 
 
 class Decoder(nn.Module):
 
-	def __init__(self, dim, hidden_dim=64, max_n=64, **kwargs):
+	def __init__(self, dim, hidden_dim=64, shared=None, **kwargs):
 		super().__init__()
 		# Params
 		self.output_dim = dim
 		self.hidden_dim = hidden_dim
-		self.max_n = max_n
-		self.pos_mode = kwargs.get("pos_mode", "onehot")
+		self.shared = shared
 		# Modules
-		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=self.pos_mode)
-		self.key_net = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1., layernorm=True, nonlinearity=nn.Tanh)
-		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=False, nonlinearity=nn.Tanh)
-		self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=1, nlayers=2, layernorm=True, nonlinearity=nn.ReLU)
+		self.decoder = build_mlp(input_dim=self.hidden_dim, output_dim=self.output_dim, nlayers=2, midmult=1., layernorm=False, nonlinearity=nn.Mish)
+		self.size_pred = build_mlp(input_dim=self.hidden_dim, output_dim=1, nlayers=2, layernorm=True, nonlinearity=nn.Mish)
 
 	def forward(self, z):
 		# z: batch_size x hidden_dim
-		n_logits = self.size_pred(z) # batch_size x max_n
+		n_logits = self.size_pred(z.real) # batch_size x 1
 		n = torch.round(n_logits, decimals=0).squeeze(-1).int()
-		n = torch.minimum(n, torch.tensor(self.max_n-1))
 		n = torch.maximum(n, torch.tensor(0))
 		self.n_pred_logits = n_logits
 		self.n_pred = n
 
+		n_enc = self.shared.cardinality(n.unsqueeze(1).float())
+		z = z - n_enc
+
 		k = torch.cat([torch.arange(n[i], device=z.device) for i in range(n.shape[0])], dim=0)
-		pos = self.pos_gen(k) # total_nodes x max_n
-
-		keys = self.key_net(pos)
-
+		keys = self.shared.get_key(k)
+		# breakpoint()
 		vals_rep = torch.repeat_interleave(z, n, dim=0)
 		zp = vals_rep * keys
+		zp_real = zp.real
 
-		x = self.decoder(zp)
+		x = self.decoder(zp_real)
 		batch = torch.repeat_interleave(torch.arange(n.shape[0], device=z.device), n, dim=0)
 
 		self.x = x
@@ -195,7 +177,7 @@ class Decoder(nn.Module):
 		return self.x
 
 	def get_n_pred_logits(self):
-		'Returns: the class logits for each possible n, up to max_n (shape: batch x max_n)'
+		'Returns: the class logits for each possible n (shape: batch x 1)'
 		return self.n_pred_logits
 
 	def get_n_pred(self):
@@ -204,14 +186,34 @@ class Decoder(nn.Module):
 
 
 
+class Shared(nn.Module):
+
+	def __init__(self, dim, hidden_dim, **kwargs):
+		super().__init__()
+		self.dim = dim
+		self.hidden_dim = hidden_dim
+		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
+
+	def get_key(self, key):
+		t = torch.linspace(0, 1, self.hidden_dim)
+		ti = torch.complex(torch.zeros_like(t), t)
+		if isinstance(key, int) or isinstance(key, float) or (isinstance(key, torch.Tensor) and key.dim()==0):
+			return torch.exp(ti * key * 8)
+		elif isinstance(key, torch.Tensor) and key.dim()==1:
+			return torch.exp(ti[None,:] * key[:,None] * 8)
+		else:
+			raise ValueError("key must be 0d or a 1d torch tensor")
+
+
 if __name__ == '__main__':
 
 	dim = 3
 	max_n = 5
-	batch_size = 16
+	batch_size = 8
 
-	enc = Encoder(dim=dim)
-	dec = Decoder(dim=dim)
+	sae = AutoEncoder(dim=dim, hidden_dim=15)
+	enc = sae.encoder
+	dec = sae.decoder
 
 	data_list = []
 	batch_list = []
