@@ -18,6 +18,43 @@ Autoencoder Tasks:
 - Training communication in a GNN without a downstream objective
 - Pre-training an encoder for a team of agents to produce a global state
 
+## Installation
+
+## Training
+```python
+from sae import AutoEncoder
+
+max_n = 16
+hidden_dim = 96
+feat_dim = 6
+
+model = AutoEncoder(dim=feat_dim, hidden_dim=hidden_dim, max_n=max_n)
+
+data_list = []
+size_list = []
+for i in range(batch_size):
+  n = torch.randint(low=1, high=max_n, size=(1,))
+  x = torch.randn(n[0], feat_dim)
+  data_list.append(x)
+  size_list.append(n)
+x = torch.cat(data_list, dim=0)
+sizes = torch.cat(size_list, dim=0)
+batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
+
+x = x.to(device)
+batch = batch.to(device)
+
+xr, batchr = model(x, batch)
+
+loss_data = model.loss()
+loss = loss_data["loss"]
+
+loss.backward()
+optim.step()
+
+optim.zero_grad()
+```
+
 ## Architecture
 
 ![Encoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/encoderschema.png)
