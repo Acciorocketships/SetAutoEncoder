@@ -18,8 +18,13 @@ Autoencoder Tasks:
 - Training communication in a GNN without a downstream objective
 - Pre-training an encoder for a team of agents to produce a global state
 
+## Architecture
+
 ![Encoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/encoder.png)
 ![Decoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/decoder.png)
+
+## Results
+
 ![Correlation](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/correlation.png)
 ![Cardinality](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/cardinality.png)
 ![Ablation](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/ablation.png)
