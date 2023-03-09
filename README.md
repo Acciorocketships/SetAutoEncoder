@@ -93,6 +93,7 @@ xr, batchr = model.decoder(z)
 
 ## Paper
 https://arxiv.org/abs/2302.12826
+
 Appearing in AAMAS 2023
 
 ## Architecture
