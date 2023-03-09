@@ -20,8 +20,8 @@ Autoencoder Tasks:
 
 ## Architecture
 
-![Encoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/encoder.png)
-![Decoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/decoder.png)
+![Encoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/encoderschema.png)
+![Decoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/decoderschema.png)
 
 ## Results
 
