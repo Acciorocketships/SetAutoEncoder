@@ -60,6 +60,38 @@ optim.step()
 optim.zero_grad()
 ```
 
+## Evaluation
+
+from sae import AutoEncoder
+
+```python
+max_n = 16
+hidden_dim = 96
+feat_dim = 6
+
+model = AutoEncoder(dim=feat_dim, hidden_dim=hidden_dim, max_n=max_n)
+
+data_list = []
+size_list = []
+for i in range(batch_size):
+  n = torch.randint(low=1, high=max_n, size=(1,))
+  x = torch.randn(n[0], feat_dim)
+  data_list.append(x)
+  size_list.append(n)
+x = torch.cat(data_list, dim=0)
+sizes = torch.cat(size_list, dim=0)
+batch = torch.arange(sizes.numel()).repeat_interleave(sizes)
+
+x = x.to(device)
+batch = batch.to(device)
+
+z = model.encoder(x, batch)
+
+xr, batchr = model.decoder(z)
+
+```
+
+
 ## Architecture
 
 ![Encoder](https://github.com/Acciorocketships/SetAutoEncoder/blob/main/schema/encoderschema.png)
