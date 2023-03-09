@@ -62,9 +62,9 @@ optim.zero_grad()
 
 ## Evaluation
 
+```python
 from sae import AutoEncoder
 
-```python
 max_n = 16
 hidden_dim = 96
 feat_dim = 6
