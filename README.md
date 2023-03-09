@@ -20,6 +20,11 @@ Autoencoder Tasks:
 
 ## Installation
 
+```bash
+cd SetAutoEncoder
+pip install -e .
+```
+
 ## Training
 ```python
 from sae import AutoEncoder
