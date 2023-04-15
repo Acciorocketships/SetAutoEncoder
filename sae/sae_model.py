@@ -72,10 +72,16 @@ class Encoder(nn.Module):
 		self.rank = torch.nn.Linear(self.input_dim, 1)
 		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
-	def sort(self, x):
-		mag = self.rank(x).reshape(-1)
-		_, idx = torch.sort(mag, dim=0)
-		return x[idx], idx
+	def sort(self, x, batch):
+		mag = self.rank(x)
+		max_mag = torch.max(mag) + 0.0001
+		batch_mag = batch * max_mag
+		new_mag = mag.squeeze() + batch_mag
+		_, idx_sorted = torch.sort(new_mag)
+		x_sorted = x[idx_sorted]
+		xs_idx = idx_sorted
+		xs = x_sorted
+		return xs, xs_idx
 
 	def forward(self, x, batch=None, n_batches=None):
 		# x: n x input_dim
@@ -85,19 +91,10 @@ class Encoder(nn.Module):
 		self.batch = batch
 
 		n = scatter(src=torch.ones(x.shape[0], device=x.device), index=batch, dim_size=n_batches).long()  # batch_size
-		ptr = torch.cumsum(torch.cat([torch.zeros(1, device=x.device), n]), dim=0).int()
 		self.n = n
 
-		# Zip set start and ends
-		xs = []
-		xs_idx = []
-		for i, j in zip(ptr[:-1], ptr[1:]):
-			x_sorted, idx_sorted = self.sort(x[i:j, :])
-			xs.append(x_sorted)
-			xs_idx.append(idx_sorted + i)
-		xs = torch.cat(xs, dim=0) # total_nodes x input_dim
-		xs_idx = torch.cat(xs_idx, dim=0)
-		self.xs_idx_rev = torch.empty_like(xs_idx, device=x.device).scatter_(0, xs_idx, torch.arange(xs_idx.numel(), device=x.device))
+		# Sort
+		xs, xs_idx = self.sort(x, batch)
 		self.xs = xs
 		self.xs_idx = xs_idx
 
