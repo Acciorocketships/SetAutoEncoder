@@ -11,7 +11,7 @@ class Visualiser:
 		# self.reset()
 
 	def reset(self):
-		pyplot.cla()
+		self.ax.cla()
 
 
 

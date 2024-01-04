@@ -1,13 +1,13 @@
 import torch
 import inspect
-from sae.sae_new import AutoEncoder
+from sae.sae_var import AutoEncoder
 from sae.baseline_tspn import AutoEncoder as AutoEncoderTSPN
 from sae.baseline_dspn import AutoEncoder as AutoEncoderDSPN
 from sae.baseline_rnn import AutoEncoder as AutoEncoderRNN
 from visualiser import Visualiser
 
 torch.set_printoptions(precision=2, sci_mode=False)
-model_name = "sae_rand-{name}-{hidden_dim}"
+model_name = "sae_rand-{name}"
 model_path_base = f"saved/{model_name}.pt"
 fig_path_base = "plots/sim/{name}-{alpha}.pdf"
 
@@ -17,14 +17,16 @@ project = "sae-rand-eval"
 
 def experiments():
 	trials = {
-		"sae": [{"model": AutoEncoder}],
-		"rnn": [{"model": AutoEncoderRNN}],
-		"dspn": [{"model": AutoEncoderDSPN}],
-		"tspn": [{"model": AutoEncoderTSPN}],
+		"var_dim5_max8_hidden32": [{"model": AutoEncoder}],
+		# "rnn": [{"model": AutoEncoderRNN}],
+		# "dspn": [{"model": AutoEncoderDSPN}],
+		# "tspn": [{"model": AutoEncoderTSPN}],
 	}
 	default = {
-		"hidden_dim": 96,
-		"n": 8,
+		"hidden_dim": 32,
+		"dim": 5,
+		"n": 6,
+		"max_n": 8,
 		"log": False,
 	}
 
@@ -90,7 +92,7 @@ def run(
 	set0_idx = 0
 	set1_idx = 1
 
-	z = model.encoder(x, batch)
+	z, _ = model.encoder(x, batch)
 	z0 = z[set0_idx,:]
 	z1 = z[set1_idx,:]
 

@@ -88,11 +88,12 @@ class Encoder(nn.Module):
 		self.max_n = max_n
 		self.pos_mode = kwargs.get("pos_mode", "onehot")
 		# Modules
+		embed_dim = dim * max_n
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=self.pos_mode)
-		self.key_net = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
-		self.val_net = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
-		self.mean_net = nn.Identity()
-		self.std_net = build_mlp(input_dim=self.hidden_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
+		self.key_net = build_mlp(input_dim=self.max_n, output_dim=embed_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
+		self.val_net = build_mlp(input_dim=self.input_dim, output_dim=embed_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
+		self.mean_net = build_mlp(input_dim=embed_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
+		self.std_net = build_mlp(input_dim=embed_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
 		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
