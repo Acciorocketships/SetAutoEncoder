@@ -13,7 +13,7 @@ from visualiser import Visualiser
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}-{hidden_dim}.pt"
 
-project = "sae-rand-exp"
+project = "sae-test"
 
 def experiments():
 	trials = {
@@ -26,7 +26,7 @@ def experiments():
 		"dim": 16,
 		"hidden_dim": 96,
 		"max_n": 4,
-		"epochs": 25000,
+		"epochs": 50000,
 		"load": False,
 		"save": False,
 		"log": True,
@@ -125,14 +125,14 @@ def run(
 
 		optim.zero_grad()
 
-		var = model.get_vars()
-		pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
-		corr = correlation(var["x"][tgt_idx], var["xr"][pred_idx])
+		# var = model.get_vars()
+		# pred_idx, tgt_idx = get_loss_idxs(var["n_pred"], var["n"])
+		# corr = correlation(var["x"][tgt_idx], var["xr"][pred_idx])
 
 		if log:
 			log_data = {
 				**loss_data,
-				"corr": corr,
+				# "corr": corr,
 			}
 
 			# if t % 10 == 0:

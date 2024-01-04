@@ -4,8 +4,9 @@ import wandb
 import inspect
 import traceback
 from sae import get_loss_idxs, correlation
-from sae.sae_new import AutoEncoder
+from sae.sae_var import AutoEncoder
 from visualiser import Visualiser
+from matplotlib import pyplot
 
 torch.set_printoptions(precision=2, sci_mode=False)
 model_path_base="saved/sae_rand-{name}.pt"
@@ -14,13 +15,13 @@ project = "sae-rand-test"
 
 def experiments():
 	trials = {
-		"sae-1e3": [{"model": AutoEncoder, "hidden_dim": 96, "runs": 1, "log": True}],
+		"var_dim5_max8_hidden32": [{"model": AutoEncoder, "dim": 5, "max_n": 8, "hidden_dim": 32, "runs": 1, "log": True, "save": True}],
 	}
 	default = {
 		"dim": 6,
 		"hidden_dim": 96,
 		"max_n": 16,
-		"epochs": 25000,
+		"epochs": 50000,
 		"load": False,
 		"save": False,
 		"log": False,
@@ -51,7 +52,7 @@ def run(
 			dim = 4,
 			hidden_dim = 64,
 			max_n = 16,
-			epochs = 100000,
+			epochs = 50000,
 			batch_size = 64,
 			model_path = model_path_base.format(name="base"),
 			model = None,
@@ -81,7 +82,7 @@ def run(
 			group=name,
 			config=config,
 		)
-		vis = Visualiser(visible=False)
+		vis = Visualiser(visible=True)
 
 	optim = Adam(model.parameters())
 
@@ -128,14 +129,15 @@ def run(
 				"corr": corr,
 			}
 
-			if t % 10 == 0:
+			if t % 2500 == 0 and t != 0:
+				xr, batchr = model(x, batch, sample=False)
 				x0 = x[batch==0]
 				xr0 = xr[batchr==0]
 				vis.reset()
 				vis.show_objects(xr0.cpu().detach())
-				vis.show_objects(x0.cpu().detach(), alpha=0.5, line={"dash": "dot"})
+				vis.show_objects(x0.cpu().detach(), alpha=0.3, linestyle="--")
 				plt = vis.render()
-				log_data["visualisation"] = plt
+				log_data["visualisation"] = wandb.Image(plt)
 
 			wandb.log(log_data)
 

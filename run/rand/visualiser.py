@@ -6,18 +6,23 @@ class Visualiser:
 
 	def __init__(self, visible=False):
 		self.visible = visible
-		self.reset()
+		self.fig = pyplot.figure()
+		self.ax = pyplot.axes()
+		# self.reset()
 
 	def reset(self):
-		self.fig, self.ax = pyplot.subplots(figsize=(10,10))
+		pyplot.cla()
+
 
 
 	def show_objects(self, x, agent_pos=torch.zeros(2), **kwargs):
 		x = x.detach()
 		for i in range(x.shape[0]):
-			colour = torch.abs(x[i,:3])
-			radius = torch.abs(x[i,3]) / 8
-			pos = (x[i,4:6] - agent_pos) * 1
+			colour = torch.abs(x[i,3:])
+			if colour.shape[-1] == 2:
+				colour = torch.cat([colour, 0.5*torch.ones(1)])
+			radius = torch.abs(x[i,2]) / 8
+			pos = (x[i,:2] - agent_pos) * 1
 			self.create_shape(colour=colour, pos=pos, radius=radius, type="circle", **kwargs)
 
 
@@ -36,7 +41,7 @@ class Visualiser:
 				self.ax.arrow(pos[0], pos[1], pos2[0]-pos[0], pos2[1]-pos[1], color=colour, **kwargs)
 		elif radius is not None:
 			if type == "circle":
-				shape = Circle((pos[0], pos[1]), radius=radius, facecolor=colour, edgecolor="black", linewidth=4, **kwargs)
+				shape = Circle((pos[0], pos[1]), radius=radius, facecolor=colour, edgecolor="black", linewidth=3, **kwargs)
 			elif type == "box":
 				shape = Rectangle((pos[0]-radius, pos[1]-radius), width=2*radius, height=2*radius, facecolor=colour, edgecolor="black", **kwargs)
 			self.ax.add_patch(shape)

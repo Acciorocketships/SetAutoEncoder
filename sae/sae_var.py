@@ -4,6 +4,7 @@ from sae.util import scatter
 from sae.mlp import build_mlp
 from sae.positional import PositionalEncoding
 from sae.loss import get_loss_idxs, correlation, mean_squared_loss
+from torch.distributions.normal import Normal
 
 
 class AutoEncoder(nn.Module):
@@ -15,17 +16,27 @@ class AutoEncoder(nn.Module):
 		super().__init__()
 		self.encoder = Encoder(*args, **kwargs)
 		self.decoder = Decoder(*args, **kwargs)
+		self.normal = Normal(loc=torch.zeros(self.encoder.hidden_dim), scale=torch.ones(self.encoder.hidden_dim))
 
-	def forward(self, x, batch=None):
-		z = self.encoder(x, batch)
+	def forward(self, x, batch=None, sample=True):
+		z_mean, z_log_std = self.encoder(x, batch)
+		if sample:
+			z_std = torch.exp(z_log_std)
+			sample = self.normal.sample((z_mean.shape[0],))
+			z = sample * z_std + z_mean
+		else:
+			z = z_mean
 		xr, batchr = self.decoder(z)
 		return xr, batchr
 
 	def get_vars(self):
+		z_mean, z_log_std = self.encoder.get_z()
 		self.vars = {
 			"n_pred_logits": self.decoder.get_n_pred_logits(),
 			"n_pred": self.decoder.get_n_pred(),
 			"n": self.encoder.get_n(),
+			"z_mean": z_mean,
+			"z_log_std": z_log_std,
 			"x": self.encoder.get_x(),
 			"xr": self.decoder.get_x_pred(),
 			"perm": self.encoder.get_x_perm(),
@@ -42,11 +53,14 @@ class AutoEncoder(nn.Module):
 		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
 		x = vars["x"]
 		xr = vars["xr"]
+		z_mean = vars["z_mean"]
+		z_log_std = vars["z_log_std"]
 		mse_loss = torch.mean(mean_squared_loss(x[tgt_idx], xr[pred_idx]))
 		size_loss = torch.mean(mean_squared_loss(vars["n_pred_logits"], vars["n"].unsqueeze(-1).detach().float()))
+		kl_loss = torch.mean(0.5*torch.exp(z_log_std)**2 + 0.5*z_mean**2 - z_log_std - 0.5)
 		if torch.isnan(mse_loss):
 			mse_loss = 0
-		loss = 100 * mse_loss + 1 * size_loss
+		loss = 100 * mse_loss + 1 * size_loss + 1 * kl_loss
 		corr = correlation(x[tgt_idx], xr[pred_idx])
 		x_var = x.var(dim=0).mean()
 		xr_var = xr.var(dim=0).mean()
@@ -54,9 +68,12 @@ class AutoEncoder(nn.Module):
 			"loss": loss,
 			"size_loss": size_loss,
 			"mse_loss": mse_loss,
+			"kl_loss": kl_loss,
 			"corr": corr,
 			"x_var": x_var,
 			"xr_var": xr_var,
+			"z_mean": torch.mean(z_mean),
+			"z_std": torch.mean(torch.exp(z_log_std)),
 		}
 
 
@@ -74,6 +91,8 @@ class Encoder(nn.Module):
 		self.pos_gen = PositionalEncoding(dim=self.max_n, mode=self.pos_mode)
 		self.key_net = build_mlp(input_dim=self.max_n, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
 		self.val_net = build_mlp(input_dim=self.input_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
+		self.mean_net = nn.Identity()
+		self.std_net = build_mlp(input_dim=self.hidden_dim, output_dim=self.hidden_dim, nlayers=2, midmult=1.,layernorm=True, nonlinearity=nn.Mish)
 		self.rank = torch.nn.Linear(self.input_dim, 1)
 		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
@@ -108,11 +127,13 @@ class Encoder(nn.Module):
 
 		# Encoder
 		y = self.val_net(xs) * self.key_net(pos)  # total_nodes x hidden_dim
-		z_elements = scatter(src=y, index=batch, dim=-2, dim_size=n_batches)  # batch_size x dim
+		enc = scatter(src=y, index=batch, dim=-2, dim_size=n_batches)  # batch_size x dim
+		z_mean = self.mean_net(enc)
+		z_log_std = self.std_net(enc)
 		n_enc = self.cardinality(n.unsqueeze(-1).float())
-		z = z_elements + n_enc
-		self.z = z
-		return z
+		z_mean = z_mean + n_enc
+		self.z = (z_mean, z_log_std)
+		return (z_mean, z_log_std)
 
 	def get_x_perm(self):
 		'Returns: the permutation applied to the inputs (shape: ninputs)'

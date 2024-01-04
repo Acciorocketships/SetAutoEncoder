@@ -3,9 +3,10 @@ __MACOSX/
 __pycache__/
 .DS_Store
 runs/
-*/wandb
-run/fusion/wandb/
-run/rand/wandb/
+run/*/wandb/
+run/*/saved/
+run/*/plots/
+run/image/*.pt
 .idea/
 params/
 *.egg-info
