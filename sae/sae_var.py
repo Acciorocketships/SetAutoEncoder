@@ -55,7 +55,7 @@ class AutoEncoder(nn.Module):
 		xr = vars["xr"]
 		z_mean = vars["z_mean"]
 		z_log_std = vars["z_log_std"]
-		mse_loss = torch.mean(mean_squared_loss(x[tgt_idx], xr[pred_idx]))
+		mse_loss = torch.mean(mean_squared_loss(x[tgt_idx], xr[pred_idx], weighting=None))
 		size_loss = torch.mean(mean_squared_loss(vars["n_pred_logits"], vars["n"].unsqueeze(-1).detach().float()))
 		kl_loss = torch.mean(0.5*torch.exp(z_log_std)**2 + 0.5*z_mean**2 - z_log_std - 0.5)
 		if torch.isnan(mse_loss):
@@ -99,7 +99,7 @@ class Encoder(nn.Module):
 
 	def sort(self, x, batch):
 		mag = self.rank(x)
-		max_mag = torch.max(mag) + 0.0001
+		max_mag = torch.max(mag) #+ 0.0001
 		batch_mag = batch * max_mag
 		new_mag = batch_mag + mag.squeeze()
 		_, idx_sorted = torch.sort(new_mag)

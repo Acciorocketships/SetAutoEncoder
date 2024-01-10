@@ -4,7 +4,8 @@ import wandb
 import inspect
 import traceback
 from sae import get_loss_idxs, correlation
-from sae.sae_var import AutoEncoder
+from sae.sae_var import AutoEncoder as VarAutoEncoder
+from sae.sae_model import AutoEncoder
 from visualiser import Visualiser
 from matplotlib import pyplot
 
@@ -15,10 +16,11 @@ project = "sae-rand-test"
 
 def experiments():
 	trials = {
-		"var_dim5_max8_hidden32": [{"model": AutoEncoder, "dim": 5, "max_n": 8, "hidden_dim": 32, "runs": 1, "log": True, "save": True}],
+		# "saevar_dim5_max8_hidden32": [{"model": VarAutoEncoder, "dim": 5, "max_n": 8, "hidden_dim": 32, "runs": 1, "log": True, "save": True}],
+		"sae_dim5_max8_hidden48": [{"model": AutoEncoder, "dim": 5, "max_n": 8, "hidden_dim": 48, "runs": 1, "log": True, "save": True}],
 	}
 	default = {
-		"dim": 6,
+		"dim": 5,
 		"hidden_dim": 96,
 		"max_n": 16,
 		"epochs": 50000,
@@ -49,7 +51,7 @@ def experiments():
 
 
 def run(
-			dim = 4,
+			dim = 5,
 			hidden_dim = 64,
 			max_n = 16,
 			epochs = 50000,
@@ -62,6 +64,9 @@ def run(
 			log = True,
 			**kwargs,
 		):
+
+	data_mean = torch.tensor([0.,0.,0.,0.,-2.]).unsqueeze(0)
+	data_var = torch.tensor([2.,3.,1.,1.,2]).unsqueeze(0)
 
 	if inspect.isclass(model):
 		model = model(dim=dim, hidden_dim=hidden_dim, max_n=max_n, **kwargs)
@@ -99,7 +104,7 @@ def run(
 		size_list = []
 		for i in range(batch_size):
 			n = torch.randint(low=1, high=max_n, size=(1,))
-			x = torch.randn(n[0], dim)
+			x = (torch.rand(n[0], dim) - 0.5) * 2 * data_var + data_mean
 			data_list.append(x)
 			size_list.append(n)
 		x = torch.cat(data_list, dim=0)
@@ -130,7 +135,10 @@ def run(
 			}
 
 			if t % 2500 == 0 and t != 0:
-				xr, batchr = model(x, batch, sample=False)
+				if isinstance(model, VarAutoEncoder):
+					xr, batchr = model(x, batch, sample=False)
+				else:
+					xr, batchr = model(x, batch)
 				x0 = x[batch==0]
 				xr0 = xr[batchr==0]
 				vis.reset()

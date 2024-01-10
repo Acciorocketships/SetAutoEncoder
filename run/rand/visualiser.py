@@ -18,10 +18,10 @@ class Visualiser:
 	def show_objects(self, x, agent_pos=torch.zeros(2), **kwargs):
 		x = x.detach()
 		for i in range(x.shape[0]):
-			colour = torch.abs(x[i,3:])
+			colour = torch.abs(x[i,2:4])
 			if colour.shape[-1] == 2:
 				colour = torch.cat([colour, 0.5*torch.ones(1)])
-			radius = torch.abs(x[i,2]) / 8
+			radius = torch.exp(x[i,4]) / 2
 			pos = (x[i,:2] - agent_pos) * 1
 			self.create_shape(colour=colour, pos=pos, radius=radius, type="circle", **kwargs)
 

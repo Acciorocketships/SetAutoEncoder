@@ -42,7 +42,7 @@ class AutoEncoder(nn.Module):
 		pred_idx, tgt_idx = get_loss_idxs(vars["n_pred"], vars["n"])
 		x = vars["x"]
 		xr = vars["xr"]
-		mse_loss = torch.mean(mean_squared_loss(x[tgt_idx], xr[pred_idx]))
+		mse_loss = torch.mean(mean_squared_loss(x[tgt_idx], xr[pred_idx], weighting=None))
 		size_loss = torch.mean(mean_squared_loss(vars["n_pred_logits"], vars["n"].unsqueeze(-1).detach().float()))
 		if torch.isnan(mse_loss):
 			mse_loss = 0
@@ -78,8 +78,8 @@ class Encoder(nn.Module):
 		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
 	def sort(self, x, batch):
-		mag = self.rank(x)
-		max_mag = torch.max(mag) + 0.0001
+		mag = torch.abs(self.rank(x))
+		max_mag = torch.max(mag) #+ 0.0001
 		batch_mag = batch * max_mag
 		new_mag = batch_mag + mag.squeeze()
 		_, idx_sorted = torch.sort(new_mag)
