@@ -78,10 +78,7 @@ class Encoder(nn.Module):
 		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
 	def sort(self, x, batch):
-		try:
-			mag = torch.abs(self.rank(x))
-		except:
-			breakpoint()
+		mag = torch.abs(self.rank(x))
 		max_mag = torch.max(mag) #+ 0.0001
 		batch_mag = batch * max_mag
 		new_mag = batch_mag + mag.squeeze()
@@ -90,10 +87,6 @@ class Encoder(nn.Module):
 		xs_idx = idx_sorted
 		xs = x_sorted
 		return xs, xs_idx
-
-	def to(self, **kwargs):
-		breakpoint()
-		super().to(**kwargs)
 
 	def forward(self, x, batch=None, n_batches=None):
 		# x: n x input_dim
