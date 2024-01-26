@@ -2,7 +2,10 @@ import torch
 from typing import Optional
 
 def scatter(src: torch.Tensor, index: torch.Tensor, dim: int = -1, dim_size: Optional[int] = None) -> torch.Tensor:
-	index = broadcast(index, src, dim)
+	try:
+		index = broadcast(index, src, dim)
+	except:
+		breakpoint()
 	size = list(src.size())
 	if dim_size is not None:
 		size[dim] = dim_size
@@ -20,10 +23,7 @@ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
 			src = src.unsqueeze(0)
 	for _ in range(src.dim(), other.dim()):
 		src = src.unsqueeze(-1)
-	try:
 		src = src.expand_as(other)
-	except:
-		breakpoint()
 	return src
 
 def size_nested(input, dim):
