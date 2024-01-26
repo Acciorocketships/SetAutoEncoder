@@ -81,10 +81,7 @@ class Encoder(nn.Module):
 		mag = torch.abs(self.rank(x))
 		max_mag = torch.max(mag) #+ 0.0001
 		batch_mag = batch * max_mag
-		try:
-			new_mag = batch_mag + mag.squeeze()
-		except:
-			breakpoint()
+		new_mag = batch_mag + mag.squeeze()
 		_, idx_sorted = torch.sort(new_mag)
 		x_sorted = x[idx_sorted]
 		xs_idx = idx_sorted
