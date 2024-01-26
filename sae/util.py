@@ -20,7 +20,10 @@ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
 			src = src.unsqueeze(0)
 	for _ in range(src.dim(), other.dim()):
 		src = src.unsqueeze(-1)
-	src = src.expand_as(other)
+	try:
+		src = src.expand_as(other)
+	except:
+		breakpoint()
 	return src
 
 def size_nested(input, dim):
