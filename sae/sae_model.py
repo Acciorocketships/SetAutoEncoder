@@ -78,7 +78,10 @@ class Encoder(nn.Module):
 		self.cardinality = torch.nn.Linear(1, self.hidden_dim)
 
 	def sort(self, x, batch):
-		mag = torch.abs(self.rank(x))
+		try:
+			mag = torch.abs(self.rank(x))
+		except:
+			breakpoint()
 		max_mag = torch.max(mag) #+ 0.0001
 		batch_mag = batch * max_mag
 		new_mag = batch_mag + mag.squeeze()
