@@ -17,7 +17,7 @@ project = "sae-rand-test"
 def experiments():
 	trials = {
 		# "saevar_dim5_max8_hidden32": [{"model": VarAutoEncoder, "dim": 5, "max_n": 8, "hidden_dim": 32, "runs": 1, "log": True, "save": True}],
-		"sae_dim5_max8_hidden48": [{"model": AutoEncoder, "dim": 5, "max_n": 8, "hidden_dim": 48, "runs": 1, "log": True, "save": True}],
+		"sae_dim4_max5_hidden20": [{"model": AutoEncoder, "dim": 4, "max_n": 5, "hidden_dim": 20, "runs": 1, "log": False, "save": True}],
 	}
 	default = {
 		"dim": 5,
@@ -65,8 +65,8 @@ def run(
 			**kwargs,
 		):
 
-	data_mean = torch.tensor([0.,0.,0.,0.,-2.]).unsqueeze(0)
-	data_var = torch.tensor([2.,3.,1.,1.,2]).unsqueeze(0)
+	data_mean = torch.tensor([0.,0.,0.,0.,]).unsqueeze(0)
+	data_var = torch.tensor([1.,1.,1.,1.]).unsqueeze(0) # [2.,3.,1.,1.]
 
 	if inspect.isclass(model):
 		model = model(dim=dim, hidden_dim=hidden_dim, max_n=max_n, **kwargs)
@@ -113,6 +113,7 @@ def run(
 
 		x = x.to(device)
 		batch = batch.to(device)
+		breakpoint()
 
 		xr, batchr = model(x, batch)
 

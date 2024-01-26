@@ -21,7 +21,7 @@ class Visualiser:
 			colour = torch.abs(x[i,2:4])
 			if colour.shape[-1] == 2:
 				colour = torch.cat([colour, 0.5*torch.ones(1)])
-			radius = torch.exp(x[i,4]) / 2
+			radius = 0.1
 			pos = (x[i,:2] - agent_pos) * 1
 			self.create_shape(colour=colour, pos=pos, radius=radius, type="circle", **kwargs)
 
