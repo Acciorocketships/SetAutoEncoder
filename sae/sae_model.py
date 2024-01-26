@@ -91,6 +91,10 @@ class Encoder(nn.Module):
 		xs = x_sorted
 		return xs, xs_idx
 
+	def to(self, **kwargs):
+		breakpoint()
+		super().to(**kwargs)
+
 	def forward(self, x, batch=None, n_batches=None):
 		# x: n x input_dim
 		_, input_dim = x.shape
