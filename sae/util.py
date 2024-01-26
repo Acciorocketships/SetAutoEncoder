@@ -2,10 +2,7 @@ import torch
 from typing import Optional
 
 def scatter(src: torch.Tensor, index: torch.Tensor, dim: int = -1, dim_size: Optional[int] = None) -> torch.Tensor:
-	try:
-		index = broadcast(index, src, dim)
-	except:
-		breakpoint()
+	index = broadcast(index, src, dim)
 	size = list(src.size())
 	if dim_size is not None:
 		size[dim] = dim_size
