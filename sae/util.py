@@ -10,8 +10,7 @@ def scatter(src: torch.Tensor, index: torch.Tensor, dim: int = -1, dim_size: Opt
 		size[dim] = 0
 	else:
 		size[dim] = int(index.max()) + 1
-	out = torch.zeros(size, dtype=src.dtype, device=src.device)
-	return out.scatter_add_(dim, index.long(), src)
+	return torch.zeros(size, dtype=src.dtype, device=src.device).scatter_add(dim, index.long(), src)
 
 def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
 	if dim < 0:
@@ -21,7 +20,7 @@ def broadcast(src: torch.Tensor, other: torch.Tensor, dim: int):
 			src = src.unsqueeze(0)
 	for _ in range(src.dim(), other.dim()):
 		src = src.unsqueeze(-1)
-	src = src.expand_as(other)
+		src = src.expand_as(other)
 	return src
 
 def size_nested(input, dim):
